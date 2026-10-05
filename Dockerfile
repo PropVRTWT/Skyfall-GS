@@ -10,7 +10,7 @@
 FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
-ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0;12.0"
+ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0+PTX"
 ENV FORCE_CUDA=1
 
 # Build-time system deps (gcc, g++, ninja, cmake, python headers)
@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
     ln -sf /usr/bin/python3.10 /usr/bin/python3
 
-# Install PyTorch first (needed to compile CUDA extensions)
-RUN pip install --no-cache-dir --upgrade pip && \
+# Install PyTorch and build tools (needed to compile CUDA extensions)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir \
         torch torchvision torchaudio \
         --index-url https://download.pytorch.org/whl/cu128
@@ -36,8 +36,8 @@ COPY submodules/diff-gaussian-rasterization-depth /build/submodules/diff-gaussia
 COPY submodules/simple-knn                         /build/submodules/simple-knn
 COPY submodules/fused-ssim                         /build/submodules/fused-ssim
 
-# Build wheels (compiled against CUDA 12.8 / Blackwell arch)
-RUN pip wheel --no-cache-dir --wheel-dir=/wheels \
+# Build wheels without isolated build env so PyTorch CUDA headers are visible
+RUN pip wheel --no-cache-dir --no-build-isolation --wheel-dir=/wheels \
         submodules/diff-gaussian-rasterization-depth \
         submodules/simple-knn \
         submodules/fused-ssim
@@ -78,7 +78,7 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
 WORKDIR /app
 
 # Install PyTorch (runtime)
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir \
         torch torchvision torchaudio \
         --index-url https://download.pytorch.org/whl/cu128
