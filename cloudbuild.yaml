@@ -2,69 +2,13 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
-# ── TRAINING JOB IMAGE ────────────────────────────────────────────────────────
-
-# Pull cached training image (fallback OK on first build)
-- name: 'gcr.io/cloud-builders/docker'
-  entrypoint: 'bash'
-  args: ['-c', 'docker pull us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest || exit 0']
-  id: Pulling cached training image
-
-# Build training image (multi-stage: CUDA kernels compiled in builder stage)
-- name: 'gcr.io/cloud-builders/docker'
-  args: [
-    'build',
-    '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}',
-    '--cache-from', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest',
-    '-f', 'Dockerfile',
-    '.'
-  ]
-  id: Building the training image
-  timeout: '3600s'
-
-# Tag training image as latest
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['tag', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest']
-  id: Tagging training image as latest
-
-# Push versioned training image
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}']
-  id: Pushing training image to registry
-
-# Push latest training image (for cache on next build)
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest']
-  id: Pushing training latest tag
-
-# Deploy / update Cloud Run Job
-- name: 'gcr.io/cloud-builders/gcloud'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      if gcloud run jobs describe ${_JOB_NAME} --region=us-central1 --project=$PROJECT_ID > /dev/null 2>&1; then
-        echo "Updating Cloud Run Job: ${_JOB_NAME}"
-        gcloud run jobs update ${_JOB_NAME} \
-          --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
-          --region=us-central1
-      else
-        echo "Creating Cloud Run Job: ${_JOB_NAME}"
-        gcloud run jobs create ${_JOB_NAME} \
-          --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
-          --region=us-central1
-      fi
-  id: Deploy Cloud Run Job
-
-# ── DASHBOARD IMAGE ───────────────────────────────────────────────────────────
-
-# Pull cached dashboard image (fallback OK on first build)
+# Pull the cached image from Artifact Registry (with fallback for first build)
 - name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
   args: ['-c', 'docker pull us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard:latest || exit 0']
-  id: Pulling cached dashboard image
+  id: Pulling cached image
 
-# Build dashboard image (lightweight FastAPI, no CUDA)
+# Build the dashboard image
 - name: 'gcr.io/cloud-builders/docker'
   args: [
     'build',
@@ -73,30 +17,28 @@ steps:
     '-f', 'dashboard/Dockerfile',
     'dashboard'
   ]
-  id: Building the dashboard image
+  id: Building the container image
 
-# Tag dashboard image as latest
+# Tag the image as latest for future caching
 - name: 'gcr.io/cloud-builders/docker'
   args: ['tag', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard/$BRANCH_NAME:${COMMIT_SHA}', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard:latest']
-  id: Tagging dashboard image as latest
+  id: Tagging as latest
 
-# Push versioned dashboard image
+# Push the versioned image
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard/$BRANCH_NAME:${COMMIT_SHA}']
-  id: Pushing dashboard image to registry
+  id: Pushing the image to registry
 
-# Push latest dashboard image (for cache on next build)
+# Push latest tag
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard:latest']
-  id: Pushing dashboard latest tag
+  id: Pushing latest tag
 
-# Deploy dashboard to Cloud Run Service
+# Deploy container image to Cloud Run Service
 - name: 'gcr.io/cloud-builders/gcloud'
   args: ['run', 'deploy', '${_SERVICE_NAME}', '--image', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard/$BRANCH_NAME:${COMMIT_SHA}', '--region', 'us-central1', '--platform', 'managed', '--allow-unauthenticated']
-  id: Deploy dashboard service
+  id: Deploy to Cloud Run Service
 
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}'
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard/$BRANCH_NAME:${COMMIT_SHA}'
   - 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs-dashboard:latest'

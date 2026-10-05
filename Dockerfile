@@ -26,9 +26,7 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
 # Install PyTorch first (needed to compile CUDA extensions)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-        torch==2.5.1+cu128 \
-        torchvision==0.20.1+cu128 \
-        torchaudio==2.5.1+cu128 \
+        torch torchvision torchaudio \
         --index-url https://download.pytorch.org/whl/cu128
 
 WORKDIR /build
@@ -82,9 +80,7 @@ WORKDIR /app
 # Install PyTorch (runtime)
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
-        torch==2.5.1+cu128 \
-        torchvision==0.20.1+cu128 \
-        torchaudio==2.5.1+cu128 \
+        torch torchvision torchaudio \
         --index-url https://download.pytorch.org/whl/cu128
 
 # Install repo Python requirements

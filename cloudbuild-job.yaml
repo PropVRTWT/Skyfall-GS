@@ -1,0 +1,59 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+steps:
+# Pull the cached image from Artifact Registry (with fallback for first build)
+- name: 'gcr.io/cloud-builders/docker'
+  entrypoint: 'bash'
+  args: ['-c', 'docker pull us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest || exit 0']
+  id: Pulling cached image
+
+# Build the training job image (multi-stage: CUDA kernels compiled in builder stage)
+- name: 'gcr.io/cloud-builders/docker'
+  args: [
+    'build',
+    '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}',
+    '--cache-from', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest',
+    '-f', 'Dockerfile',
+    '.'
+  ]
+  id: Building the container image
+  timeout: '3600s'
+
+# Tag the image as latest for future caching
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['tag', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest']
+  id: Tagging as latest
+
+# Push the versioned image
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}']
+  id: Pushing the image to registry
+
+# Push latest tag
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest']
+  id: Pushing latest tag
+
+# Deploy / update Cloud Run Job
+- name: 'gcr.io/cloud-builders/gcloud'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      if gcloud run jobs describe ${_JOB_NAME} --region=us-central1 --project=$PROJECT_ID > /dev/null 2>&1; then
+        echo "Updating Cloud Run Job: ${_JOB_NAME}"
+        gcloud run jobs update ${_JOB_NAME} \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
+          --region=us-central1
+      else
+        echo "Creating Cloud Run Job: ${_JOB_NAME}"
+        gcloud run jobs create ${_JOB_NAME} \
+          --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
+          --region=us-central1
+      fi
+  id: Deploy Cloud Run Job
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest'
