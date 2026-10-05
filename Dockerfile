@@ -12,6 +12,9 @@ FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0+PTX"
 ENV FORCE_CUDA=1
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH="/usr/local/cuda/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # Build-time system deps (gcc, g++, ninja, cmake, python headers)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -36,8 +39,14 @@ COPY submodules/diff-gaussian-rasterization-depth /build/submodules/diff-gaussia
 COPY submodules/simple-knn                         /build/submodules/simple-knn
 COPY submodules/fused-ssim                         /build/submodules/fused-ssim
 
-# Build wheels without isolated build env so PyTorch CUDA headers are visible
-RUN pip wheel --no-cache-dir --no-build-isolation --wheel-dir=/wheels \
+# Patch fused-ssim setup.py:
+# 1. On PyTorch 2.4+, hasattr(torch, 'xpu') is True. Fix it to check torch.xpu.is_available() so it falls back to CUDA during docker build.
+# 2. Use CUDAExtension instead of CppExtension for CUDA build.
+RUN sed -i "s/elif hasattr(torch, 'xpu'):/elif hasattr(torch, 'xpu') and torch.xpu.is_available():/g" /build/submodules/fused-ssim/setup.py && \
+    sed -i 's/return CppExtension, "ssim.cu"/return CUDAExtension, "ssim.cu"/g' /build/submodules/fused-ssim/setup.py
+
+# Build wheels without isolated build env, without downloading runtime dependencies
+RUN pip wheel --no-cache-dir --no-build-isolation --no-deps --wheel-dir=/wheels \
         submodules/diff-gaussian-rasterization-depth \
         submodules/simple-knn \
         submodules/fused-ssim
