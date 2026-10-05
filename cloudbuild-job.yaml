@@ -2,6 +2,16 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 steps:
+# Initialize and fetch git submodules recursively
+- name: 'gcr.io/cloud-builders/git'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      git config --global --add safe.directory /workspace
+      git submodule update --init --recursive
+  id: Initialize git submodules
+
 # Pull the cached image from Artifact Registry (with fallback for first build)
 - name: 'gcr.io/cloud-builders/docker'
   entrypoint: 'bash'
