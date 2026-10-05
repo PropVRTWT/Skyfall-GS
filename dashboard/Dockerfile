@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir \
     httpx==0.27.2 \
     jinja2==3.1.4
 
-COPY dashboard/ .
+COPY . .
 
 EXPOSE 8080
 
