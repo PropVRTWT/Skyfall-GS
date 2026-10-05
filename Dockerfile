@@ -87,15 +87,16 @@ RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
 
 WORKDIR /app
 
-# Install PyTorch (runtime)
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+# Install PyTorch and build tools (runtime)
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir "setuptools<70" wheel && \
     pip install --no-cache-dir \
         torch torchvision torchaudio \
         --index-url https://download.pytorch.org/whl/cu128
 
-# Install repo Python requirements
+# Install repo Python requirements (with --no-build-isolation for CLIP's pkg_resources dependency)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --no-build-isolation -r requirements.txt
 
 # Copy pre-built CUDA wheels from builder stage and install
 COPY --from=builder /wheels /wheels
