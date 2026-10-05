@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Skyfall-GS · Job Dashboard</title>
+  <meta name="description" content="Monitor and trigger Skyfall-GS Cloud Run Jobs." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:      #080b12;
+      --s1:      #0f1420;
+      --s2:      #141926;
+      --border:  #1c2438;
+      --acc:     #4f8ef7;
+      --acc2:    #7c3aed;
+      --green:   #22c55e;
+      --yellow:  #f59e0b;
+      --red:     #ef4444;
+      --text:    #e2e8f0;
+      --muted:   #64748b;
+      --code:    #0d1117;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 70% 50% at 10% 0%, rgba(79,142,247,.10) 0%, transparent 60%),
+        radial-gradient(ellipse 50% 60% at 90% 100%, rgba(124,58,237,.08) 0%, transparent 60%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── Layout ── */
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; position: relative; z-index: 1; }
+
+    /* ── Header ── */
+    header {
+      padding: 32px 0 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    }
+    .logo {
+      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--acc), var(--acc2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 24px rgba(79,142,247,.3);
+    }
+    .header-text h1 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.4px; }
+    .header-text p  { font-size: .82rem; color: var(--muted); margin-top: 2px; }
+    .header-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+    .config-badge {
+      font-size: .72rem; font-family: 'JetBrains Mono', monospace;
+      background: var(--s2); border: 1px solid var(--border);
+      border-radius: 6px; padding: 5px 10px; color: var(--muted);
+    }
+    #refresh-btn {
+      background: linear-gradient(135deg, var(--acc), var(--acc2));
+      border: none; border-radius: 8px;
+      padding: 9px 18px; font-size: .82rem; font-weight: 600;
+      color: #fff; cursor: pointer;
+      transition: opacity .15s, transform .15s;
+      box-shadow: 0 4px 16px rgba(79,142,247,.25);
+    }
+    #refresh-btn:hover { opacity: .9; transform: translateY(-1px); }
+    #refresh-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    /* ── Stat bar ── */
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 24px 0; }
+    .stat {
+      background: var(--s1); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .stat-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
+    .stat-val { font-size: 1.6rem; font-weight: 800; margin-top: 4px; }
+    .stat-val.green  { color: var(--green); }
+    .stat-val.yellow { color: var(--yellow); }
+    .stat-val.red    { color: var(--red); }
+    .stat-val.blue   { color: var(--acc); }
+
+    /* ── Section label ── */
+    .section-label {
+      font-size: .78rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.1px; color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+      margin: 28px 0 12px;
+    }
+    .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    /* ── Trigger form ── */
+    .trigger-card {
+      background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
+      padding: 22px 24px;
+    }
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-top: 16px; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: .75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+    .field select, .field input {
+      background: var(--s2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 12px;
+      color: var(--text); font-size: .85rem; font-family: inherit;
+      outline: none; transition: border-color .15s;
+      min-width: 160px;
+    }
+    .field select:focus, .field input:focus { border-color: var(--acc); }
+    #trigger-btn {
+      background: linear-gradient(135deg, var(--green), #16a34a);
+      border: none; border-radius: 8px;
+      padding: 10px 22px; font-size: .85rem; font-weight: 700;
+      color: #fff; cursor: pointer;
+      transition: opacity .15s, transform .15s;
+      box-shadow: 0 4px 16px rgba(34,197,94,.2);
+      white-space: nowrap;
+    }
+    #trigger-btn:hover { opacity: .9; transform: translateY(-1px); }
+    #trigger-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    #trigger-msg {
+      margin-top: 12px; font-size: .82rem; border-radius: 8px; padding: 10px 14px;
+      display: none;
+    }
+    #trigger-msg.success { background: rgba(34,197,94,.1); color: #86efac; border: 1px solid rgba(34,197,94,.2); display: block; }
+    #trigger-msg.error   { background: rgba(239,68,68,.1);  color: #fca5a5; border: 1px solid rgba(239,68,68,.2);  display: block; }
+
+    /* ── Executions table ── */
+    .table-wrap {
+      background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th { background: var(--s2); padding: 12px 16px; text-align: left;
+         font-size: .72rem; font-weight: 700; text-transform: uppercase;
+         letter-spacing: .8px; color: var(--muted); }
+    td { padding: 13px 16px; font-size: .83rem; border-top: 1px solid var(--border); }
+    tr:hover td { background: var(--s2); }
+    .mono { font-family: 'JetBrains Mono', monospace; font-size: .78rem; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 999px;
+      font-size: .72rem; font-weight: 600;
+    }
+    .badge-running  { background: rgba(245,158,11,.12); color: var(--yellow); border: 1px solid rgba(245,158,11,.25); }
+    .badge-success  { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.25); }
+    .badge-failed   { background: rgba(239,68,68,.12);  color: var(--red);    border: 1px solid rgba(239,68,68,.25); }
+    .badge-unknown  { background: rgba(100,116,139,.12);color: var(--muted);  border: 1px solid rgba(100,116,139,.25); }
+
+    #empty-row td { text-align: center; color: var(--muted); padding: 32px; }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      width: 18px; height: 18px; border: 2px solid var(--border);
+      border-top-color: var(--acc); border-radius: 50%;
+      animation: spin .7s linear infinite; display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: var(--s1); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 18px;
+      font-size: .82rem; color: var(--text);
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
+      transform: translateY(80px); opacity: 0;
+      transition: transform .3s, opacity .3s;
+      z-index: 999;
+    }
+    #toast.show { transform: translateY(0); opacity: 1; }
+
+    footer { text-align: center; padding: 32px 0 24px; color: var(--muted); font-size: .74rem; }
+
+    @media (max-width: 600px) {
+      .header-actions { width: 100%; }
+      .form-row { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">&#128752;</div>
+    <div class="header-text">
+      <h1>Skyfall-GS &middot; Job Dashboard</h1>
+      <p>Monitor and trigger Cloud Run Job executions</p>
+    </div>
+    <div class="header-actions">
+      <span class="config-badge" id="config-label">Loading config&hellip;</span>
+      <button id="refresh-btn" onclick="loadStatus()">&#8635; Refresh</button>
+    </div>
+  </header>
+
+  <!-- Stat bar -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Running</div>
+      <div class="stat-val yellow" id="stat-running">&mdash;</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Succeeded</div>
+      <div class="stat-val green" id="stat-success">&mdash;</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Failed</div>
+      <div class="stat-val red" id="stat-failed">&mdash;</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Total (last 10)</div>
+      <div class="stat-val blue" id="stat-total">&mdash;</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Last Updated</div>
+      <div class="stat-val" style="font-size:1rem;" id="stat-time">&mdash;</div>
+    </div>
+  </div>
+
+  <!-- Trigger form -->
+  <div class="section-label">&#9654; Trigger New Job</div>
+  <div class="trigger-card">
+    <p style="font-size:.84rem; color:#94a3b8;">
+      Launch a new Cloud Run Job execution. Env vars are passed as overrides to the existing job definition.
+    </p>
+    <div class="form-row">
+      <div class="field">
+        <label>Dataset</label>
+        <select id="f-dataset">
+          <option value="datasets_JAX">JAX</option>
+          <option value="datasets_NYC">NYC</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Scene</label>
+        <input id="f-scene" type="text" value="JAX_068" placeholder="e.g. JAX_068" />
+      </div>
+      <div class="field">
+        <label>Stage</label>
+        <select id="f-stage">
+          <option value="1">Stage 1 — Reconstruction</option>
+          <option value="2">Stage 2 — IDU Synthesis</option>
+          <option value="eval">Eval</option>
+        </select>
+      </div>
+      <button id="trigger-btn" onclick="triggerJob()">&#9654; Run Job</button>
+    </div>
+    <div id="trigger-msg"></div>
+  </div>
+
+  <!-- Executions table -->
+  <div class="section-label">&#128203; Recent Executions</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Execution</th>
+          <th>Status</th>
+          <th>Started</th>
+          <th>Duration</th>
+          <th>Tasks</th>
+        </tr>
+      </thead>
+      <tbody id="exec-tbody">
+        <tr id="empty-row">
+          <td colspan="5"><span class="spinner"></span>&nbsp; Loading executions&hellip;</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    Skyfall-GS &middot; ECCV 2026 &nbsp;|&nbsp; Cloud Run Jobs &middot; RTX Pro 6000 Blackwell
+  </footer>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Config ────────────────────────────────────────────────────────────────
+  async function loadConfig() {
+    try {
+      const r = await fetch('/api/config');
+      const d = await r.json();
+      document.getElementById('config-label').textContent =
+        `${d.project_id} / ${d.region} / ${d.job_name}`;
+    } catch (e) {
+      document.getElementById('config-label').textContent = 'Config unavailable';
+    }
+  }
+
+  // ── Status ────────────────────────────────────────────────────────────────
+  async function loadStatus() {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+      const r   = await fetch('/api/status');
+      const data = await r.json();
+      const execs = data.executions || [];
+
+      let running = 0, succeeded = 0, failed = 0;
+
+      const tbody = document.getElementById('exec-tbody');
+      tbody.innerHTML = '';
+
+      if (execs.length === 0) {
+        tbody.innerHTML = '<tr id="empty-row"><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">No executions found</td></tr>';
+      } else {
+        execs.forEach(ex => {
+          const conds = ex.conditions || [];
+          const ready = conds.find(c => c.type === 'Ready');
+          const state = ready ? ready.state : 'UNKNOWN';
+
+          if (state === 'True')         succeeded++;
+          else if (state === 'False')   failed++;
+          else                           running++;
+
+          const name     = ex.name?.split('/').pop() || '—';
+          const started  = ex.startTime ? new Date(ex.startTime).toLocaleString() : '—';
+          const duration = ex.startTime && ex.completionTime
+            ? fmtDuration(ex.startTime, ex.completionTime) : (running ? '⏳ running' : '—');
+
+          const tasks    = `${ex.succeededCount || 0}✓  ${ex.failedCount || 0}✗`;
+
+          const badgeClass = state === 'True' ? 'badge-success'
+                           : state === 'False' ? 'badge-failed'
+                           : 'badge-running';
+          const badgeLabel = state === 'True' ? '✓ Succeeded'
+                           : state === 'False' ? '✗ Failed'
+                           : '⏳ Running';
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="mono">${name}</td>
+            <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+            <td>${started}</td>
+            <td>${duration}</td>
+            <td>${tasks}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      document.getElementById('stat-running').textContent = running;
+      document.getElementById('stat-success').textContent = succeeded;
+      document.getElementById('stat-failed').textContent  = failed;
+      document.getElementById('stat-total').textContent   = execs.length;
+      document.getElementById('stat-time').textContent    = new Date().toLocaleTimeString();
+
+    } catch (e) {
+      showToast('Failed to load executions: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '&#8635; Refresh';
+    }
+  }
+
+  // ── Trigger ───────────────────────────────────────────────────────────────
+  async function triggerJob() {
+    const btn  = document.getElementById('trigger-btn');
+    const msg  = document.getElementById('trigger-msg');
+    btn.disabled = true;
+    btn.textContent = 'Submitting…';
+    msg.className = '';
+    msg.style.display = 'none';
+
+    const payload = {
+      scene:   document.getElementById('f-scene').value.trim(),
+      stage:   document.getElementById('f-stage').value,
+      dataset: document.getElementById('f-dataset').value,
+    };
+
+    try {
+      const r = await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) {
+        const err = await r.json();
+        throw new Error(err.detail || r.statusText);
+      }
+      const d = await r.json();
+      msg.className = 'success';
+      msg.textContent = `✓ Job triggered: ${d.name?.split('/').pop() || 'submitted'}`;
+      setTimeout(() => loadStatus(), 2000);
+    } catch (e) {
+      msg.className = 'error';
+      msg.textContent = '✗ Error: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '▶ Run Job';
+    }
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function fmtDuration(start, end) {
+    const ms = new Date(end) - new Date(start);
+    const h  = Math.floor(ms / 3600000);
+    const m  = Math.floor((ms % 3600000) / 60000);
+    const s  = Math.floor((ms % 60000) / 1000);
+    return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3500);
+  }
+
+  // ── Auto-refresh every 30 s ───────────────────────────────────────────────
+  loadConfig();
+  loadStatus();
+  setInterval(loadStatus, 30000);
+</script>
+</body>
+</html>

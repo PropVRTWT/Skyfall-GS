@@ -1,0 +1,42 @@
+# Skyfall-GS — .dockerignore
+# Keeps Docker build context small (avoids sending large data/outputs to daemon)
+
+# Version control
+.git
+.gitmodules
+.gitignore
+
+# Large data directories (mount from GCS at runtime)
+data/
+outputs/
+fused/
+depth_tmp/
+results_eval/
+temp_frames*/
+
+# Build artifacts
+__pycache__/
+*.py[codz]
+*.so
+*.egg-info/
+build/
+dist/
+*.zip
+*.csv
+
+# Dev/editor files
+.venv/
+venv/
+env/
+.env
+.envrc
+.vscode/
+.idea/
+.mypy_cache/
+.ruff_cache/
+
+# Dashboard (separate Dockerfile, built separately)
+dashboard/
+
+# CI/CD
+cloudbuild.yaml
