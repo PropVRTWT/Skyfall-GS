@@ -65,9 +65,10 @@ ENV PYTHONUNBUFFERED=1
 ENV HF_HOME=/app/.cache/huggingface
 ENV TORCH_HOME=/app/.cache/torch
 
-# Runtime system deps (no build tools needed)
+# Runtime system deps (no build tools needed, git needed for git+ pip packages)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 python3.10-dev python3-pip \
+    git \
     libgl1 libglib2.0-0 \
     libopenexr-dev \
     fuse \
