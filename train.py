@@ -37,9 +37,22 @@ from submodules.MoGe.idu_depth import MoGeIDU
 # pip install diffusers==0.30.1 huggingface-hub==0.33.4 transformers==4.46.3 tokenizers==0.20.3 (default)
 from submodules.FlowEdit.idu_refine import FlowEditRefineIDU 
 
-# fused SSIM, for faster training
+# fused SSIM, with robust fallback to pure-PyTorch SSIM for GPU compatibility
+try:
+    from fused_ssim import fused_ssim as _fused_ssim
+    _FUSED_SSIM_AVAILABLE = True
+except Exception:
+    _FUSED_SSIM_AVAILABLE = False
 
-from fused_ssim import fused_ssim
+def safe_ssim(img1, img2):
+    global _FUSED_SSIM_AVAILABLE
+    if _FUSED_SSIM_AVAILABLE:
+        try:
+            return _fused_ssim(img1, img2)
+        except Exception as e:
+            print(f"[WARN] fused_ssim encountered CUDA error ({e}). Falling back to pure PyTorch ssim.")
+            _FUSED_SSIM_AVAILABLE = False
+    return ssim(img1, img2)
 
 # from utils.gpu_utils import GPUManager
 
@@ -219,7 +232,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             lpips_value = lpips_loss_fn(image.unsqueeze(0)*2.0-1.0,  gt_image.unsqueeze(0)*2.0-1.0).mean()
             loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * lpips_value
         else:
-            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+            ssim_value = safe_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
             loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
         depth_loss = 0.0
@@ -775,7 +788,7 @@ def training_idu_episode(
                 lpips_value = lpips_loss_fn(image.unsqueeze(0)*2.0-1.0,  gt_image.unsqueeze(0)*2.0-1.0).mean()
                 loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * lpips_value
             else:
-                ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+                ssim_value = safe_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
                 loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
         else:
             Ll1 = torch.tensor(0.0)

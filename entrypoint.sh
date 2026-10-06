@@ -67,12 +67,33 @@ if [ -z "${MOGE_MODEL_PATH:-}" ]; then
   done
 fi
 
+# ── Resolve Scene Directory ───────────────────────────────────────────────────
+SCENE_DIR=""
+for cand in \
+  "$DATA_DIR/datasets/$DATASET/$SCENE" \
+  "$DATA_DIR/$DATASET/$SCENE" \
+  "$DATA_DIR/datasets/$DATASET/$SCENE/outputs_skew" \
+  "$DATA_DIR/$DATASET/$SCENE/outputs_skew" \
+  "$DATA_DIR/$SCENE" \
+  "$DATA_DIR/datasets/$SCENE"; do
+  if [ -d "$cand" ] && { [ -f "$cand/transforms_train.json" ] || [ -d "$cand/sparse" ]; }; then
+    SCENE_DIR="$cand"
+    echo "[INFO] Found valid scene at: $SCENE_DIR"
+    break
+  fi
+done
+
+if [ -z "$SCENE_DIR" ]; then
+  SCENE_DIR="$DATA_DIR/datasets/$DATASET/$SCENE"
+  echo "[WARN] Could not auto-detect transforms_train.json. Using fallback: $SCENE_DIR"
+fi
+
 # ── Stage 1: Reconstruction ───────────────────────────────────────────────────
 if [ "$STAGE" = "1" ]; then
   echo "[INFO] Starting Stage 1 — Reconstruction"
 
   python train.py \
-    -s "$DATA_DIR/datasets/$DATASET/$SCENE" \
+    -s "$SCENE_DIR" \
     -m "$OUTPUT_DIR/$SCENE" \
     --eval \
     --kernel_size 0.1 \
@@ -93,7 +114,13 @@ if [ "$STAGE" = "1" ]; then
     --sample_pseudo_interval 10
 
   echo "[INFO] Stage 1 complete — uploading checkpoint to GCS"
-  gsutil -m cp -r "$OUTPUT_DIR/$SCENE" "${GCS_BUCKET}/checkpoints/"
+  if command -v gsutil &> /dev/null && [ -n "$GCS_BUCKET" ]; then
+    gsutil -m cp -r "$OUTPUT_DIR/$SCENE" "${GCS_BUCKET}/checkpoints/"
+  else
+    echo "[INFO] Saving checkpoint to mounted GCS: $DATA_DIR/checkpoints/"
+    mkdir -p "$DATA_DIR/checkpoints"
+    cp -r "$OUTPUT_DIR/$SCENE" "$DATA_DIR/checkpoints/"
+  fi
 
 # ── Stage 2: IDU Synthesis ────────────────────────────────────────────────────
 elif [ "$STAGE" = "2" ]; then
@@ -101,10 +128,16 @@ elif [ "$STAGE" = "2" ]; then
 
   # Download Stage 1 checkpoint from GCS
   echo "[INFO] Fetching Stage 1 checkpoint from GCS"
-  gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
+  mkdir -p "$CKPT_DIR"
+  if [ -d "$DATA_DIR/checkpoints/$SCENE" ]; then
+    echo "[INFO] Restoring checkpoint from mounted GCS: $DATA_DIR/checkpoints/$SCENE"
+    cp -r "$DATA_DIR/checkpoints/$SCENE" "$CKPT_DIR/"
+  elif command -v gsutil &> /dev/null && [ -n "$GCS_BUCKET" ]; then
+    gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
+  fi
 
   python train.py \
-    -s "$DATA_DIR/datasets/$DATASET/$SCENE" \
+    -s "$SCENE_DIR" \
     -m "$OUTPUT_DIR/${SCENE}_idu" \
     --start_checkpoint "$CKPT_DIR/$SCENE/chkpnt30000.pth" \
     --iterative_datasets_update \
@@ -135,7 +168,13 @@ elif [ "$STAGE" = "2" ]; then
     --idu_train_ratio 0.75
 
   echo "[INFO] Stage 2 complete — uploading IDU outputs to GCS"
-  gsutil -m cp -r "$OUTPUT_DIR/${SCENE}_idu" "${GCS_BUCKET}/outputs/"
+  if command -v gsutil &> /dev/null && [ -n "$GCS_BUCKET" ]; then
+    gsutil -m cp -r "$OUTPUT_DIR/${SCENE}_idu" "${GCS_BUCKET}/outputs/"
+  else
+    echo "[INFO] Saving outputs to mounted GCS: $DATA_DIR/outputs/"
+    mkdir -p "$DATA_DIR/outputs"
+    cp -r "$OUTPUT_DIR/${SCENE}_idu" "$DATA_DIR/outputs/"
+  fi
 
 # ── Eval mode ─────────────────────────────────────────────────────────────────
 elif [ "$STAGE" = "eval" ]; then
