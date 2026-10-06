@@ -160,11 +160,11 @@ elif [ "$STAGE" = "2" ]; then
     --idu_grid_size 3 \
     --idu_grid_width 512 \
     --idu_grid_height 512 \
-    --idu_episode_iterations 10000 \
+    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-2500}" \
     --idu_iter_full_train 0 \
     --idu_opacity_cooling_iterations 500 \
     --lambda_pseudo_depth 0.5 \
-    --idu_densify_until_iter 9000 \
+    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-2000}" \
     --idu_train_ratio 0.75
 
   echo "[INFO] Stage 2 complete — uploading IDU outputs to GCS"

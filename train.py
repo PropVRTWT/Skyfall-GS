@@ -109,7 +109,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     if checkpoint:
         print("Restoring model from checkpoint")
         # original implementation
-        (model_params, first_iter) = torch.load(checkpoint)
+        (model_params, first_iter) = torch.load(checkpoint, weights_only=False)
         gaussians.restore(model_params, opt)
         # set correct xyz lr scheduler
         opt.position_lr_max_steps = opt.iterations
@@ -386,7 +386,7 @@ def generate_idu_training_set(
 
     gaussians = GaussianModel(dataset.sh_degree, dataset.appearance_enabled, dataset.appearance_n_fourier_freqs, dataset.appearance_embedding_dim)
     print(f"Loading model from checkpoint {checkpoint_path}")
-    (model_params, first_iter) = torch.load(checkpoint_path)
+    (model_params, first_iter) = torch.load(checkpoint_path, weights_only=False)
     gaussians.load_from_checkpoints(model_params)
     base_dir = os.path.dirname(checkpoint_path)
     print(base_dir)
@@ -652,7 +652,7 @@ def training_idu_episode(
     if checkpoint_path:
         print(f"Restoring model from checkpoint {checkpoint_path}")
         # original implementation
-        (model_params, first_iter) = torch.load(checkpoint_path)
+        (model_params, first_iter) = torch.load(checkpoint_path, weights_only=False)
         gaussians.restore(model_params, opt, iterative_datasets_update=True)
         print("Restored model from checkpoint at iteration {}".format(first_iter))
         opt.iterations = first_iter + opt.idu_episode_iterations  # TODO: make this a parameter
