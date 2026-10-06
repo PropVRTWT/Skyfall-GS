@@ -105,6 +105,18 @@ RUN pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
 # Copy the full repo (submodules are needed for MoGe / FlowEdit imports)
 COPY . .
 
+# Patch MoGe idu_depth.py:
+# 1. Allow MOGE_MODEL_PATH env var or fallback to GCS mounted weights
+# 2. Fix AttributeError in __del__ if initialization fails
+RUN python3 -c '\
+path = "/app/submodules/MoGe/idu_depth.py"; \
+content = open(path).read(); \
+old_init = "self.model = MoGeModel.from_pretrained(\"Ruicheng/moge-vitl\").to(device).eval()"; \
+new_init = """model_path = os.environ.get(\"MOGE_MODEL_PATH\")\n        if not model_path:\n            for cand in [\"/mnt/gcs/weights/moge-vitl/model.pt\", \"/mnt/gcs/models/moge-vitl/model.pt\", \"/mnt/gcs/weights/model.pt\", \"/mnt/gcs/moge-vitl/model.pt\"]:\n                if os.path.isfile(cand):\n                    model_path = cand\n                    print(f\"[MoGeIDU] Found local weights in GCS: {cand}\")\n                    break\n        if not model_path:\n            model_path = \"Ruicheng/moge-vitl\"\n        self.model = MoGeModel.from_pretrained(model_path).to(device).eval()"""; \
+content = content.replace(old_init, new_init); \
+content = content.replace("if self.model is not None:", "if hasattr(self, \"model\") and self.model is not None:"); \
+open(path, "w").write(content)'
+
 # Make sure MoGe & FlowEdit submodule Python packages are importable
 ENV PYTHONPATH="/app:/app/submodules/MoGe:/app/submodules/FlowEdit:${PYTHONPATH}"
 

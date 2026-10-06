@@ -26,6 +26,11 @@ echo "  STAGE   = $STAGE"
 echo "  DATASET = $DATASET"
 echo "  BUCKET  = $GCS_BUCKET"
 echo "  TASK    = ${CLOUD_RUN_TASK_INDEX:-0}"
+if [ -n "${HF_TOKEN:-}" ]; then
+  echo "  HF_TOKEN= [configured]"
+else
+  echo "  HF_TOKEN= [not set]"
+fi
 echo "========================================"
 
 # ── Mount GCS bucket via gcsfuse ──────────────────────────────────────────────
@@ -42,6 +47,17 @@ gcsfuse \
     "$BUCKET_NAME" "$DATA_DIR"
 
 echo "[INFO] GCS mount successful"
+
+# Check if pre-cached model weights exist in GCS to avoid downloading from Hugging Face
+if [ -z "${MOGE_MODEL_PATH:-}" ]; then
+  for cand in "$DATA_DIR/weights/moge-vitl/model.pt" "$DATA_DIR/models/moge-vitl/model.pt" "$DATA_DIR/weights/model.pt" "$DATA_DIR/moge-vitl/model.pt"; do
+    if [ -f "$cand" ]; then
+      export MOGE_MODEL_PATH="$cand"
+      echo "[INFO] Found MoGe weights in GCS: $MOGE_MODEL_PATH"
+      break
+    fi
+  done
+fi
 
 # ── Stage 1: Reconstruction ───────────────────────────────────────────────────
 if [ "$STAGE" = "1" ]; then
