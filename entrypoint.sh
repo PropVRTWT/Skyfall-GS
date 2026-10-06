@@ -14,7 +14,7 @@ set -euo pipefail
 SCENE="${SCENE:-JAX_068}"
 STAGE="${STAGE:-1}"
 DATASET="${DATASET:-datasets_JAX}"
-GCS_BUCKET="${GCS_BUCKET:?GCS_BUCKET env var is required}"
+GCS_BUCKET="${GCS_BUCKET:-}"
 DATA_DIR="/mnt/gcs"
 OUTPUT_DIR="/mnt/outputs"
 CKPT_DIR="/tmp/ckpts"
@@ -24,7 +24,7 @@ echo "  Skyfall-GS  |  Cloud Run Job"
 echo "  SCENE   = $SCENE"
 echo "  STAGE   = $STAGE"
 echo "  DATASET = $DATASET"
-echo "  BUCKET  = $GCS_BUCKET"
+echo "  BUCKET  = ${GCS_BUCKET:-[native volume mount]}"
 echo "  TASK    = ${CLOUD_RUN_TASK_INDEX:-0}"
 if [ -n "${HF_TOKEN:-}" ]; then
   echo "  HF_TOKEN= [configured]"
@@ -33,20 +33,28 @@ else
 fi
 echo "========================================"
 
-# ── Mount GCS bucket via gcsfuse ──────────────────────────────────────────────
-BUCKET_NAME="${GCS_BUCKET#gs://}"
 mkdir -p "$DATA_DIR" "$OUTPUT_DIR" "$CKPT_DIR"
 
-echo "[INFO] Mounting GCS bucket: $BUCKET_NAME → $DATA_DIR"
-gcsfuse \
-    --implicit-dirs \
-    --file-mode=0777 \
-    --dir-mode=0777 \
-    --stat-cache-ttl=60s \
-    --type-cache-ttl=60s \
-    "$BUCKET_NAME" "$DATA_DIR"
-
-echo "[INFO] GCS mount successful"
+# ── Mount GCS bucket ──────────────────────────────────────────────────────────
+# Case A: Already mounted by Cloud Run native volume
+if mountpoint -q "$DATA_DIR" 2>/dev/null; then
+  echo "[INFO] GCS bucket is already mounted via Cloud Run Volume at $DATA_DIR"
+# Case B: Mount inside container using gcsfuse from GCS_BUCKET env var
+elif [ -n "$GCS_BUCKET" ]; then
+  BUCKET_NAME="${GCS_BUCKET#gs://}"
+  echo "[INFO] Mounting GCS bucket via gcsfuse: $BUCKET_NAME → $DATA_DIR"
+  gcsfuse \
+      --implicit-dirs \
+      --file-mode=0777 \
+      --dir-mode=0777 \
+      --stat-cache-ttl=60s \
+      --type-cache-ttl=60s \
+      "$BUCKET_NAME" "$DATA_DIR"
+  echo "[INFO] GCS mount successful"
+else
+  echo "[ERROR] Neither /mnt/gcs is mounted nor GCS_BUCKET env var is provided."
+  exit 1
+fi
 
 # Check if pre-cached model weights exist in GCS to avoid downloading from Hugging Face
 if [ -z "${MOGE_MODEL_PATH:-}" ]; then
