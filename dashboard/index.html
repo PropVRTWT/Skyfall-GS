@@ -130,6 +130,72 @@
     #trigger-msg.success { background: rgba(34,197,94,.1); color: #86efac; border: 1px solid rgba(34,197,94,.2); display: block; }
     #trigger-msg.error   { background: rgba(239,68,68,.1);  color: #fca5a5; border: 1px solid rgba(239,68,68,.2);  display: block; }
 
+    /* ── Scene pills and quick select ── */
+    .scene-meta-box {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .scene-meta-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .scene-meta-label {
+      font-size: .73rem;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .scene-count-badge {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: .7rem;
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    .scene-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .scene-pill {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 11px;
+      font-size: .78rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .15s ease;
+      user-select: none;
+    }
+    .scene-pill:hover {
+      border-color: var(--acc);
+      color: #fff;
+      background: rgba(99,102,241,.15);
+      transform: translateY(-1px);
+    }
+    .scene-pill.active {
+      background: rgba(99,102,241,.22);
+      border-color: var(--acc);
+      color: #c7d2fe;
+      font-weight: 600;
+      box-shadow: 0 0 0 1px var(--acc);
+    }
+
     /* ── Executions table ── */
     .table-wrap {
       background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
@@ -233,14 +299,20 @@
     <div class="form-row">
       <div class="field">
         <label>Dataset</label>
-        <select id="f-dataset">
-          <option value="datasets_JAX">JAX</option>
-          <option value="datasets_NYC">NYC</option>
+        <select id="f-dataset" onchange="onDatasetChange()">
+          <option value="datasets_JAX">JAX (datasets_JAX)</option>
+          <option value="datasets_NYC">NYC (datasets_NYC)</option>
         </select>
       </div>
       <div class="field">
         <label>Scene</label>
-        <input id="f-scene" type="text" value="JAX_068" placeholder="e.g. JAX_068" />
+        <select id="f-scene" onchange="onSceneSelectChange()">
+          <!-- Populated dynamically based on Dataset -->
+        </select>
+      </div>
+      <div class="field" id="f-scene-custom-wrap" style="display: none;">
+        <label>Custom Scene</label>
+        <input id="f-scene-custom" type="text" placeholder="e.g. JAX_999" />
       </div>
       <div class="field">
         <label>Stage</label>
@@ -252,6 +324,19 @@
       </div>
       <button id="trigger-btn" onclick="triggerJob()">&#9654; Run Job</button>
     </div>
+
+    <!-- Quick-select Scene Pills List -->
+    <div class="scene-meta-box">
+      <div class="scene-meta-header">
+        <div class="scene-meta-label">
+          <span>&#128194; Available Scenes in <span id="current-dataset-label" style="color:#93c5fd;">datasets_JAX</span></span>
+          <span class="scene-count-badge" id="scene-count-badge">8 scenes</span>
+        </div>
+        <span style="font-size:.7rem; color: var(--muted);">Click any scene to select</span>
+      </div>
+      <div class="scene-pills" id="scene-pills"></div>
+    </div>
+
     <div id="trigger-msg"></div>
   </div>
 
@@ -364,6 +449,112 @@
     }
   }
 
+  // ── Datasets & Scenes Catalog ───────────────────────────────────────────
+  const DATASETS_MAP = {
+    datasets_JAX: {
+      label: 'datasets_JAX',
+      defaultScene: 'JAX_068',
+      scenes: [
+        'JAX_068',
+        'JAX_004',
+        'JAX_164',
+        'JAX_168',
+        'JAX_175',
+        'JAX_214',
+        'JAX_260',
+        'JAX_264'
+      ]
+    },
+    datasets_NYC: {
+      label: 'datasets_NYC',
+      defaultScene: 'NYC_004',
+      scenes: [
+        'NYC_004',
+        'NYC_010',
+        'NYC_219',
+        'NYC_336'
+      ]
+    }
+  };
+
+  function updateSceneOptions(datasetKey, selectedScene = null) {
+    const ds = DATASETS_MAP[datasetKey] || DATASETS_MAP.datasets_JAX;
+    const sceneSelect = document.getElementById('f-scene');
+    const pillsContainer = document.getElementById('scene-pills');
+    const labelSpan = document.getElementById('current-dataset-label');
+    const countBadge = document.getElementById('scene-count-badge');
+    const customWrap = document.getElementById('f-scene-custom-wrap');
+
+    labelSpan.textContent = ds.label;
+    countBadge.textContent = `${ds.scenes.length} scenes`;
+
+    // Populate dropdown
+    sceneSelect.innerHTML = '';
+    ds.scenes.forEach(scene => {
+      const opt = document.createElement('option');
+      opt.value = scene;
+      opt.textContent = scene;
+      sceneSelect.appendChild(opt);
+    });
+
+    const customOpt = document.createElement('option');
+    customOpt.value = '__custom__';
+    customOpt.textContent = '✏️ Custom Scene...';
+    sceneSelect.appendChild(customOpt);
+
+    const active = selectedScene && (ds.scenes.includes(selectedScene) || selectedScene === '__custom__')
+      ? selectedScene
+      : ds.defaultScene;
+
+    sceneSelect.value = active;
+    if (active === '__custom__') {
+      customWrap.style.display = 'flex';
+    } else {
+      customWrap.style.display = 'none';
+    }
+
+    // Populate pills
+    pillsContainer.innerHTML = '';
+    ds.scenes.forEach(scene => {
+      const pill = document.createElement('div');
+      pill.className = 'scene-pill' + (scene === active ? ' active' : '');
+      pill.textContent = scene;
+      pill.onclick = () => selectScene(scene);
+      pillsContainer.appendChild(pill);
+    });
+  }
+
+  function selectScene(scene) {
+    const sceneSelect = document.getElementById('f-scene');
+    sceneSelect.value = scene;
+    onSceneSelectChange();
+  }
+
+  function onDatasetChange() {
+    const dsKey = document.getElementById('f-dataset').value;
+    updateSceneOptions(dsKey);
+  }
+
+  function onSceneSelectChange() {
+    const sceneVal = document.getElementById('f-scene').value;
+    const customWrap = document.getElementById('f-scene-custom-wrap');
+    if (sceneVal === '__custom__') {
+      customWrap.style.display = 'flex';
+      document.getElementById('f-scene-custom').focus();
+    } else {
+      customWrap.style.display = 'none';
+    }
+
+    // Highlight active pill
+    document.querySelectorAll('.scene-pill').forEach(pill => {
+      if (pill.textContent === sceneVal) {
+        pill.classList.add('active');
+      } else {
+        pill.classList.remove('active');
+      }
+    });
+  }
+
   // ── Trigger ───────────────────────────────────────────────────────────────
   async function triggerJob() {
     const btn  = document.getElementById('trigger-btn');
@@ -373,8 +564,21 @@
     msg.className = '';
     msg.style.display = 'none';
 
+    const sceneSelect = document.getElementById('f-scene');
+    let sceneName = sceneSelect.value;
+    if (sceneName === '__custom__') {
+      sceneName = document.getElementById('f-scene-custom').value.trim();
+      if (!sceneName) {
+        msg.className = 'error';
+        msg.textContent = '✗ Please enter a custom scene name';
+        btn.disabled = false;
+        btn.textContent = '▶ Run Job';
+        return;
+      }
+    }
+
     const payload = {
-      scene:   document.getElementById('f-scene').value.trim(),
+      scene:   sceneName,
       stage:   document.getElementById('f-stage').value,
       dataset: document.getElementById('f-dataset').value,
     };
@@ -391,7 +595,7 @@
       }
       const d = await r.json();
       msg.className = 'success';
-      msg.textContent = `✓ Job triggered: ${d.name?.split('/').pop() || 'submitted'}`;
+      msg.textContent = `✓ Job triggered: ${d.name?.split('/').pop() || 'submitted'} (${sceneName})`;
       setTimeout(() => loadStatus(), 2000);
     } catch (e) {
       msg.className = 'error';
@@ -418,7 +622,8 @@
     setTimeout(() => t.classList.remove('show'), 3500);
   }
 
-  // ── Auto-refresh every 30 s ───────────────────────────────────────────────
+  // ── Init & Auto-refresh ───────────────────────────────────────────────────
+  updateSceneOptions('datasets_JAX');
   loadConfig();
   loadStatus();
   setInterval(loadStatus, 30000);
