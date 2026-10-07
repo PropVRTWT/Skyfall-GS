@@ -1143,6 +1143,14 @@ if __name__ == "__main__":
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     if not args.iterative_datasets_update:
         training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+        # Clean up Step 1 global moge_standalone before Python interpreter teardown
+        try:
+            if 'moge_standalone' in globals():
+                if hasattr(moge_standalone, 'model'):
+                    del moge_standalone.model
+                del moge_standalone
+        except Exception:
+            pass
     else:
     # Start running iterative datasets update
         training_idu(lp.extract(args), op.extract(args), pp.extract(args), args.start_checkpoint)
