@@ -58,8 +58,19 @@ fi
 
 # Point Hugging Face cache to mounted GCS volume (avoids consuming container RAM)
 export HF_HOME="$DATA_DIR/hf_cache"
+# Direct Hub cache to hf_cache root where blobs and models--* are uploaded
+if [ -d "$DATA_DIR/hf_cache/models--black-forest-labs--FLUX.1-dev" ]; then
+  export HF_HUB_CACHE="$DATA_DIR/hf_cache"
+  export HUGGINGFACE_HUB_CACHE="$DATA_DIR/hf_cache"
+elif [ -d "$DATA_DIR/hf_cache/hub/models--black-forest-labs--FLUX.1-dev" ]; then
+  export HF_HUB_CACHE="$DATA_DIR/hf_cache/hub"
+  export HUGGINGFACE_HUB_CACHE="$DATA_DIR/hf_cache/hub"
+else
+  export HF_HUB_CACHE="$DATA_DIR/hf_cache"
+  export HUGGINGFACE_HUB_CACHE="$DATA_DIR/hf_cache"
+fi
 mkdir -p "$HF_HOME"
-echo "[INFO] Using Hugging Face cache from GCS: $HF_HOME"
+echo "[INFO] Using Hugging Face cache from GCS: $HF_HOME (Hub Cache: $HF_HUB_CACHE)"
 
 # Check if pre-cached model weights exist in GCS to avoid downloading from Hugging Face
 if [ -z "${MOGE_MODEL_PATH:-}" ]; then

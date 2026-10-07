@@ -5,7 +5,7 @@ data/datasets_JAX/*
 data/datasets_NYC/*
 results_eval/data_eval_JAX/*
 results_eval/data_eval_NYC/*
-
+hf_cache/
 outputs
 temp_frames*
 fused
