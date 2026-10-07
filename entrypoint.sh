@@ -56,6 +56,11 @@ else
   exit 1
 fi
 
+# Point Hugging Face cache to mounted GCS volume (avoids consuming container RAM)
+export HF_HOME="$DATA_DIR/hf_cache"
+mkdir -p "$HF_HOME"
+echo "[INFO] Using Hugging Face cache from GCS: $HF_HOME"
+
 # Check if pre-cached model weights exist in GCS to avoid downloading from Hugging Face
 if [ -z "${MOGE_MODEL_PATH:-}" ]; then
   for cand in "$DATA_DIR/weights/moge-vitl/model.pt" "$DATA_DIR/models/moge-vitl/model.pt" "$DATA_DIR/weights/model.pt" "$DATA_DIR/moge-vitl/model.pt"; do
