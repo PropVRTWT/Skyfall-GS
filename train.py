@@ -25,8 +25,10 @@ try:
             print(f"[FastLoad] Streaming {os.path.basename(real_p)} sequentially into memory (bypassing mmap FUSE stalls)...", flush=True)
             with open(real_p, "rb") as f:
                 content = f.read()
-            tensors = safetensors.torch.load(content, device=device)
+            tensors = safetensors.torch.load(content)
             del content
+            if str(device) != "cpu" and device is not None:
+                tensors = {k: v.to(device) for k, v in tensors.items()}
             gc.collect()
             return tensors
         return _orig_safetensors_load_file(filename, device=device, *args, **kwargs)
