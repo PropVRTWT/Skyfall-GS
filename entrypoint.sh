@@ -152,6 +152,10 @@ elif [ "$STAGE" = "2" ]; then
     gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
   fi
 
+  # Assemble pre-cached FLUX pipeline to bypass HF downloads and FUSE write limits
+  echo "[INFO] Setting up local FLUX pipeline from GCS pre-cached blobs..."
+  python3 /app/setup_flux.py 2>/dev/null || python3 setup_flux.py || echo "[WARN] setup_flux.py fallback"
+
   python train.py \
     -s "$SCENE_DIR" \
     -m "$OUTPUT_DIR/${SCENE}_idu" \
