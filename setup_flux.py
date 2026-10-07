@@ -87,5 +87,26 @@ def main():
     else:
         print(f"[setup_flux] SUCCESS: Complete FLUX pipeline assembled at {target_dir} with 0 downloads required!")
 
+    # 3. Ensure idu_refine.py is patched at runtime to load from /tmp/flux_pipeline
+    for idu_path in ["/app/submodules/FlowEdit/idu_refine.py", "submodules/FlowEdit/idu_refine.py"]:
+        if os.path.isfile(idu_path):
+            try:
+                content = open(idu_path).read()
+                old_flux = 'pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.float16)'
+                new_flux = ('flux_name = "black-forest-labs/FLUX.1-dev"\n'
+                            '            local_only = False\n'
+                            '            if os.path.isdir("/tmp/flux_pipeline"):\n'
+                            '                flux_name = "/tmp/flux_pipeline"\n'
+                            '                local_only = True\n'
+                            '                print(f"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}", flush=True)\n'
+                            '            pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)')
+                if old_flux in content:
+                    content = content.replace(old_flux, new_flux)
+                    with open(idu_path, "w") as f:
+                        f.write(content)
+                    print(f"[setup_flux] Patched {idu_path} to use /tmp/flux_pipeline")
+            except Exception as e:
+                print(f"[setup_flux] Notice on {idu_path}: {e}")
+
 if __name__ == "__main__":
     main()

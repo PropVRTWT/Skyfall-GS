@@ -118,6 +118,19 @@ content = content.replace(old_init, new_init); \
 content = re.sub(r"def __del__\(self\):[\s\S]*?(?=\s+@torch|\s+def run)", "def __del__(self):\n        try:\n            if hasattr(self, \"model\"):\n                del self.model\n        except BaseException:\n            pass\n\n    ", content); \
 open(path, "w").write(content)'
 
+# Patch FlowEdit idu_refine.py:
+# 1. Use /tmp/flux_pipeline if available and low_cpu_mem_usage=True
+# 2. Fix AttributeError in __del__
+RUN python3 -c '\
+import re; \
+path = "/app/submodules/FlowEdit/idu_refine.py"; \
+content = open(path).read(); \
+old_flux = "pipe = FluxPipeline.from_pretrained(\"black-forest-labs/FLUX.1-dev\", torch_dtype=torch.float16)"; \
+new_flux = """flux_name = \"black-forest-labs/FLUX.1-dev\"\n            local_only = False\n            if os.path.isdir(\"/tmp/flux_pipeline\"):\n                flux_name = \"/tmp/flux_pipeline\"\n                local_only = True\n                print(f\"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}\", flush=True)\n            pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)"""; \
+content = content.replace(old_flux, new_flux); \
+content = re.sub(r"def __del__\(self\):[\s\S]*?(?=\s+@contextmanager)", "def __del__(self):\n        try:\n            if hasattr(self, \"pipe\") and self.pipe is not None:\n                del self.pipe\n            if torch is not None and hasattr(torch, \"cuda\") and torch.cuda is not None and torch.cuda.is_available():\n                torch.cuda.empty_cache()\n        except BaseException:\n            pass\n\n    ", content); \
+open(path, "w").write(content)'
+
 # Make sure MoGe & FlowEdit submodule Python packages are importable
 ENV PYTHONPATH="/app:/app/submodules/MoGe:/app/submodules/FlowEdit:${PYTHONPATH}"
 
