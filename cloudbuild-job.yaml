@@ -27,25 +27,9 @@ steps:
     - '-c'
     - |
       mkdir -p flux_blobs
-      GCS_URI="$_GCS_BUCKET"
-      if [ -z "$GCS_URI" ] || [ "$GCS_URI" = '$_GCS_BUCKET' ]; then
-        GCS_URI="gs://stereo-images"
-      fi
-      # Strip trailing slash if present
-      GCS_URI="$${GCS_URI%/}"
-      # Ensure gs:// scheme is present
-      if [[ "$$GCS_URI" != gs://* ]]; then
-        GCS_URI="gs://$${GCS_URI}"
-      fi
-
-      echo "=== Downloading FLUX weights from $${GCS_URI}/hf_cache/blobs/ to bake into Docker image ==="
-      gcloud storage cp -r "$${GCS_URI}/hf_cache/blobs/*" flux_blobs/ || gsutil -m cp -r "$${GCS_URI}/hf_cache/blobs/*" flux_blobs/ || true
-      NUM_BLOBS=$(find flux_blobs -type f | wc -l)
-      echo "Staged $${NUM_BLOBS} blobs for Docker image baking"
-      if [ "$${NUM_BLOBS}" -eq 0 ]; then
-        echo "[ERROR] Failed to download FLUX blobs from $${GCS_URI}/hf_cache/blobs/! Check bucket permissions."
-        exit 1
-      fi
+      echo "=== Downloading FLUX weights from ${_GCS_BUCKET}/hf_cache/blobs/ to bake into Docker image ==="
+      gcloud storage cp -r "${_GCS_BUCKET}/hf_cache/blobs/*" flux_blobs/ || gsutil -m cp -r "${_GCS_BUCKET}/hf_cache/blobs/*" flux_blobs/
+      echo "Staged $(find flux_blobs -type f | wc -l) blobs for Docker image baking"
   id: Download FLUX weights
 
 # Build the training job image (multi-stage: CUDA kernels compiled in builder stage)
@@ -83,18 +67,14 @@ steps:
   args:
     - '-c'
     - |
-      JOB="skyfall-gs-job"
-      if [ -n "$_JOB_NAME" ] && [ "$_JOB_NAME" != '$_JOB_NAME' ]; then
-        JOB="$_JOB_NAME"
-      fi
-      if gcloud run jobs describe "$$JOB" --region=us-central1 --project=$PROJECT_ID > /dev/null 2>&1; then
-        echo "Updating Cloud Run Job: $$JOB"
-        gcloud run jobs update "$$JOB" \
+      if gcloud run jobs describe ${_JOB_NAME} --region=us-central1 --project=$PROJECT_ID > /dev/null 2>&1; then
+        echo "Updating Cloud Run Job: ${_JOB_NAME}"
+        gcloud run jobs update ${_JOB_NAME} \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
           --region=us-central1
       else
-        echo "Creating Cloud Run Job: $$JOB"
-        gcloud run jobs create "$$JOB" \
+        echo "Creating Cloud Run Job: ${_JOB_NAME}"
+        gcloud run jobs create ${_JOB_NAME} \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
           --region=us-central1
       fi
