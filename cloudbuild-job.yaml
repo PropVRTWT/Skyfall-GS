@@ -1,13 +1,6 @@
 options:
   logging: CLOUD_LOGGING_ONLY
 
-timeout: '7200s'
-
-substitutions:
-  _BAKE_FLUX: 'true'
-  _BUCKET_NAME: 'stereo-images'
-  _JOB_NAME: 'skyfall-train-job'
-
 steps:
 # Initialize and fetch git submodules recursively
 - name: 'gcr.io/cloud-builders/git'
