@@ -1,5 +1,6 @@
 options:
   logging: CLOUD_LOGGING_ONLY
+  diskSizeGb: 200
 
 timeout: '7200s'
 

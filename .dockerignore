@@ -13,6 +13,7 @@ fused/
 depth_tmp/
 results_eval/
 temp_frames*/
+hf_cache/
 
 # Build artifacts
 __pycache__/
