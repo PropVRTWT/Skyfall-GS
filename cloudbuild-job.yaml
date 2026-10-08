@@ -1,6 +1,8 @@
 options:
   logging: CLOUD_LOGGING_ONLY
 
+timeout: '7200s'
+
 steps:
 # Initialize and fetch git submodules recursively
 - name: 'gcr.io/cloud-builders/git'
@@ -25,12 +27,24 @@ steps:
     - '-c'
     - |
       mkdir -p flux_blobs
-      if [ "${_BAKE_FLUX:-true}" = "true" ]; then
-        echo "=== Downloading FLUX weights from GCS to bake into Docker image ==="
-        gcloud storage cp -r "gs://${_BUCKET_NAME}/hf_cache/blobs/*" flux_blobs/ || gsutil -m cp -r "gs://${_BUCKET_NAME}/hf_cache/blobs/*" flux_blobs/ || true
-        echo "Staged $(ls flux_blobs | wc -l) blobs for Docker image baking"
-      else
-        echo "=== Skipping FLUX baking (_BAKE_FLUX=${_BAKE_FLUX}) ==="
+      GCS_URI="$_GCS_BUCKET"
+      if [ -z "$GCS_URI" ] || [ "$GCS_URI" = '$_GCS_BUCKET' ]; then
+        GCS_URI="gs://stereo-images"
+      fi
+      # Strip trailing slash if present
+      GCS_URI="$${GCS_URI%/}"
+      # Ensure gs:// scheme is present
+      if [[ "$$GCS_URI" != gs://* ]]; then
+        GCS_URI="gs://$${GCS_URI}"
+      fi
+
+      echo "=== Downloading FLUX weights from $${GCS_URI}/hf_cache/blobs/ to bake into Docker image ==="
+      gcloud storage cp -r "$${GCS_URI}/hf_cache/blobs/*" flux_blobs/ || gsutil -m cp -r "$${GCS_URI}/hf_cache/blobs/*" flux_blobs/ || true
+      NUM_BLOBS=$(find flux_blobs -type f | wc -l)
+      echo "Staged $${NUM_BLOBS} blobs for Docker image baking"
+      if [ "$${NUM_BLOBS}" -eq 0 ]; then
+        echo "[ERROR] Failed to download FLUX blobs from $${GCS_URI}/hf_cache/blobs/! Check bucket permissions."
+        exit 1
       fi
   id: Download FLUX weights
 
@@ -69,14 +83,18 @@ steps:
   args:
     - '-c'
     - |
-      if gcloud run jobs describe ${_JOB_NAME} --region=us-central1 --project=$PROJECT_ID > /dev/null 2>&1; then
-        echo "Updating Cloud Run Job: ${_JOB_NAME}"
-        gcloud run jobs update ${_JOB_NAME} \
+      JOB="skyfall-gs-job"
+      if [ -n "$_JOB_NAME" ] && [ "$_JOB_NAME" != '$_JOB_NAME' ]; then
+        JOB="$_JOB_NAME"
+      fi
+      if gcloud run jobs describe "$$JOB" --region=us-central1 --project=$PROJECT_ID > /dev/null 2>&1; then
+        echo "Updating Cloud Run Job: $$JOB"
+        gcloud run jobs update "$$JOB" \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
           --region=us-central1
       else
-        echo "Creating Cloud Run Job: ${_JOB_NAME}"
-        gcloud run jobs create ${_JOB_NAME} \
+        echo "Creating Cloud Run Job: $$JOB"
+        gcloud run jobs create "$$JOB" \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
           --region=us-central1
       fi
