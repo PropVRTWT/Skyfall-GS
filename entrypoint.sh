@@ -169,12 +169,31 @@ elif [ "$STAGE" = "2" ]; then
   fi
   echo "[INFO] Stage 2 starting strictly from checkpoint: $START_CKPT (ignoring any existing higher checkpoints)"
 
-  # Check if FLUX pipeline is already baked inside the container image at /app/flux_pipeline
-  if [ -d "/app/flux_pipeline" ] && [ -f "/app/flux_pipeline/ae.safetensors" ]; then
-    echo "[INFO] Using pre-baked FLUX pipeline inside Docker image at /app/flux_pipeline (0s setup time!)"
-  else
-    echo "[INFO] Assembling FLUX pipeline from pre-cached blobs at /tmp/flux_pipeline..."
-    python3 /app/setup_flux.py 2>/dev/null || python3 setup_flux.py || echo "[WARN] setup_flux.py fallback"
+  # Assemble FLUX pipeline in fast container RAM disk (/tmp/flux_pipeline)
+  if [ ! -f "/tmp/flux_pipeline/ae.safetensors" ]; then
+    echo "[INFO] Setting up FLUX pipeline in RAM disk (/tmp/flux_pipeline)..."
+    GCS_SRC="${GCS_BUCKET:-gs://stereo-images}"
+    if [[ "$GCS_SRC" != gs://* ]]; then
+      GCS_SRC="gs://${GCS_SRC}"
+    fi
+    GCS_SRC="${GCS_SRC%/}"
+
+    mkdir -p /tmp/flux_blobs
+    if command -v gcloud &> /dev/null; then
+      echo "[INFO] Fast-streaming FLUX weights directly from $GCS_SRC into RAM disk at >200 MB/s..."
+      gcloud storage cp -r "${GCS_SRC}/hf_cache/blobs/*" /tmp/flux_blobs/ || true
+    fi
+
+    # Fallback to mounted GCS if needed
+    if [ ! -f "/tmp/flux_blobs/f73eecf7c469ff442523dc712cc161d631df071bf4d9d793494fbf00cdd80a82" ] && [ ! -d "/tmp/flux_blobs/f7" ]; then
+      if [ -d "$DATA_DIR/hf_cache/blobs" ]; then
+        echo "[INFO] Linking FLUX blobs from mounted GCS: $DATA_DIR/hf_cache/blobs"
+        ln -s "$DATA_DIR/hf_cache/blobs"/* /tmp/flux_blobs/ 2>/dev/null || true
+      fi
+    fi
+
+    echo "[INFO] Assembling FLUX pipeline at /tmp/flux_pipeline..."
+    python3 /app/setup_flux.py --target /tmp/flux_pipeline --blobs /tmp/flux_blobs
   fi
 
   python train.py \

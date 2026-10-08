@@ -77,11 +77,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl gnupg lsb-release \
     && rm -rf /var/lib/apt/lists/*
 
-# Install gcsfuse for GCS bucket mounting
+# Install gcsfuse and google-cloud-cli for high-speed parallel GCS transfers
 RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
     echo "deb https://packages.cloud.google.com/apt gcsfuse-$(lsb_release -cs) main" \
         > /etc/apt/sources.list.d/gcsfuse.list && \
-    apt-get update && apt-get install -y --no-install-recommends gcsfuse && \
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
+    apt-get update && apt-get install -y --no-install-recommends gcsfuse google-cloud-cli && \
     rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \
@@ -109,9 +113,6 @@ COPY . .
 
 # Apply patches to MoGe (offline GCS fallback) and FlowEdit (pipeline caching & local FLUX)
 RUN python3 patch_submodules.py
-
-# Bake FLUX pipeline into image if weights were staged in flux_blobs during build
-RUN python3 setup_flux.py --target /app/flux_pipeline --blobs /app/flux_blobs && rm -rf /app/flux_blobs
 
 # Make sure MoGe & FlowEdit submodule Python packages are importable
 ENV PYTHONPATH="/app:/app/submodules/MoGe:/app/submodules/FlowEdit:${PYTHONPATH}"
