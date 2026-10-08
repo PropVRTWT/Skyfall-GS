@@ -950,6 +950,23 @@ def training_idu_episode(
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
                 
+                # Immediately sync episode checkpoint and point cloud to mounted GCS to prevent data loss
+                try:
+                    import shutil
+                    gcs_output = os.path.join("/mnt/gcs/outputs", os.path.basename(scene.model_path))
+                    os.makedirs(gcs_output, exist_ok=True)
+                    if os.path.exists(checkpoint_path):
+                        shutil.copy2(checkpoint_path, os.path.join(gcs_output, os.path.basename(checkpoint_path)))
+                    src_pc = os.path.join(scene.model_path, "point_cloud", f"iteration_{iteration}")
+                    dst_pc = os.path.join(gcs_output, "point_cloud", f"iteration_{iteration}")
+                    if os.path.exists(src_pc):
+                        os.makedirs(dst_pc, exist_ok=True)
+                        for f in os.listdir(src_pc):
+                            shutil.copy2(os.path.join(src_pc, f), os.path.join(dst_pc, f))
+                    print(f"[GCS Sync] Immediately synced iteration {iteration} checkpoint and point_cloud to GCS: {gcs_output}", flush=True)
+                except Exception as e:
+                    print(f"[GCS Sync] Notice: {e}", flush=True)
+                
     return checkpoint_path
 
 def training_idu(dataset, opt, pipe, init_checkpoint_path):

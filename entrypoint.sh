@@ -152,6 +152,16 @@ elif [ "$STAGE" = "2" ]; then
     gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
   fi
 
+  START_CKPT="$CKPT_DIR/$SCENE/chkpnt30000.pth"
+  # Check if an existing IDU checkpoint exists in GCS outputs to resume from
+  if [ -d "$DATA_DIR/outputs/${SCENE}_idu" ]; then
+    LATEST_IDU_CKPT=$(ls -v "$DATA_DIR/outputs/${SCENE}_idu"/chkpnt*.pth 2>/dev/null | tail -n 1 || true)
+    if [ -n "$LATEST_IDU_CKPT" ] && [ -f "$LATEST_IDU_CKPT" ]; then
+      echo "[INFO] Found existing IDU checkpoint in GCS: $LATEST_IDU_CKPT - resuming from it!"
+      START_CKPT="$LATEST_IDU_CKPT"
+    fi
+  fi
+
   # Assemble pre-cached FLUX pipeline to bypass HF downloads and FUSE write limits
   echo "[INFO] Setting up local FLUX pipeline from GCS pre-cached blobs..."
   python3 /app/setup_flux.py 2>/dev/null || python3 setup_flux.py || echo "[WARN] setup_flux.py fallback"
@@ -159,7 +169,7 @@ elif [ "$STAGE" = "2" ]; then
   python train.py \
     -s "$SCENE_DIR" \
     -m "$OUTPUT_DIR/${SCENE}_idu" \
-    --start_checkpoint "$CKPT_DIR/$SCENE/chkpnt30000.pth" \
+    --start_checkpoint "$START_CKPT" \
     --iterative_datasets_update \
     --eval \
     --kernel_size 0.1 \
@@ -170,9 +180,9 @@ elif [ "$STAGE" = "2" ]; then
     --lambda_opacity 0 \
     --idu_opacity_reset_interval 5000 \
     --idu_refine \
-    --idu_num_samples_per_view 2 \
+    --idu_num_samples_per_view "${IDU_NUM_SAMPLES_PER_VIEW:-1}" \
     --densify_grad_threshold 0.0002 \
-    --idu_num_cams 6 \
+    --idu_num_cams "${IDU_NUM_CAMS:-6}" \
     --idu_use_flow_edit \
     --idu_render_size 1024 \
     --idu_flow_edit_n_min 4 \
@@ -180,11 +190,11 @@ elif [ "$STAGE" = "2" ]; then
     --idu_grid_size 3 \
     --idu_grid_width 512 \
     --idu_grid_height 512 \
-    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-2500}" \
+    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-2000}" \
     --idu_iter_full_train 0 \
     --idu_opacity_cooling_iterations 500 \
     --lambda_pseudo_depth 0.5 \
-    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-2000}" \
+    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-1500}" \
     --idu_train_ratio 0.75
 
   echo "[INFO] Stage 2 complete — uploading IDU outputs to GCS"
