@@ -120,15 +120,17 @@ open(path, "w").write(content)'
 
 # Patch FlowEdit idu_refine.py:
 # 1. Use /tmp/flux_pipeline if available and low_cpu_mem_usage=True
-# 2. Fix AttributeError in __del__
+# 2. Keep FLUX pipeline resident in memory across episodes with _CACHED_PIPELINES
 RUN python3 -c '\
 import re; \
 path = "/app/submodules/FlowEdit/idu_refine.py"; \
 content = open(path).read(); \
+if "_CACHED_PIPELINES" not in content: \
+    content = content.replace("class FlowEditRefineIDU:", "_CACHED_PIPELINES = {}\n\nclass FlowEditRefineIDU:"); \
 old_flux = "pipe = FluxPipeline.from_pretrained(\"black-forest-labs/FLUX.1-dev\", torch_dtype=torch.float16)"; \
-new_flux = """flux_name = \"black-forest-labs/FLUX.1-dev\"\n            local_only = False\n            if os.path.isdir(\"/tmp/flux_pipeline\"):\n                flux_name = \"/tmp/flux_pipeline\"\n                local_only = True\n                print(f\"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}\", flush=True)\n            pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)"""; \
+new_flux = """if model_type in _CACHED_PIPELINES:\n            print(f"[FlowEdit] Reusing existing in-memory {model_type} pipeline (0s reload time)!", flush=True)\n            pipe = _CACHED_PIPELINES[model_type].to(self.device)\n        else:\n            flux_name = \"black-forest-labs/FLUX.1-dev\"\n            local_only = False\n            if os.path.isdir(\"/tmp/flux_pipeline\"):\n                flux_name = \"/tmp/flux_pipeline\"\n                local_only = True\n                print(f\"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}\", flush=True)\n            pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only).to(self.device)\n            _CACHED_PIPELINES[model_type] = pipe"""; \
 content = content.replace(old_flux, new_flux); \
-content = re.sub(r"def __del__\(self\):[\s\S]*?(?=\s+@contextmanager)", "def __del__(self):\n        try:\n            if hasattr(self, \"pipe\") and self.pipe is not None:\n                del self.pipe\n            if torch is not None and hasattr(torch, \"cuda\") and torch.cuda is not None and torch.cuda.is_available():\n                torch.cuda.empty_cache()\n        except BaseException:\n            pass\n\n    ", content); \
+content = re.sub(r"def __del__\(self\):[\s\S]*?(?=\s+@contextmanager)", "def __del__(self):\n        try:\n            if torch is not None and hasattr(torch, \"cuda\") and torch.cuda is not None and torch.cuda.is_available():\n                total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)\n                if total_vram_gb < 40 and hasattr(self, \"pipe\") and self.pipe is not None:\n                    self.pipe.to(\"cpu\")\n                    torch.cuda.empty_cache()\n        except BaseException:\n            pass\n\n    ", content); \
 open(path, "w").write(content)'
 
 # Make sure MoGe & FlowEdit submodule Python packages are importable

@@ -87,24 +87,60 @@ def main():
     else:
         print(f"[setup_flux] SUCCESS: Complete FLUX pipeline assembled at {target_dir} with 0 downloads required!")
 
-    # 3. Ensure idu_refine.py is patched at runtime to load from /tmp/flux_pipeline
+    # 3. Ensure idu_refine.py is patched at runtime to load from /tmp/flux_pipeline and cache pipeline
     for idu_path in ["/app/submodules/FlowEdit/idu_refine.py", "submodules/FlowEdit/idu_refine.py"]:
         if os.path.isfile(idu_path):
             try:
                 content = open(idu_path).read()
-                old_flux = 'pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.float16)'
-                new_flux = ('flux_name = "black-forest-labs/FLUX.1-dev"\n'
-                            '            local_only = False\n'
-                            '            if os.path.isdir("/tmp/flux_pipeline"):\n'
-                            '                flux_name = "/tmp/flux_pipeline"\n'
-                            '                local_only = True\n'
-                            '                print(f"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}", flush=True)\n'
-                            '            pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)')
-                if old_flux in content:
-                    content = content.replace(old_flux, new_flux)
+                if "_CACHED_PIPELINES" not in content:
+                    content = content.replace("class FlowEditRefineIDU:", "_CACHED_PIPELINES = {}\n\nclass FlowEditRefineIDU:")
+                
+                if "if model_type in _CACHED_PIPELINES:" not in content:
+                    old_block = "if model_type == 'FLUX':"
+                    cached_block = (
+                        "if model_type in _CACHED_PIPELINES:\n"
+                        "            print(f'[FlowEdit] Reusing existing in-memory {model_type} pipeline (0s reload time)!', flush=True)\n"
+                        "            pipe = _CACHED_PIPELINES[model_type]\n"
+                        "            try:\n"
+                        "                pipe = pipe.to(self.device)\n"
+                        "            except Exception as e:\n"
+                        "                print(f'[FlowEdit] pipe.to({self.device}): {e}', flush=True)\n"
+                        "        else:\n"
+                        "            if model_type == 'FLUX':"
+                    )
+                    if old_block in content:
+                        content = content.replace(old_block, cached_block, 1)
+
+                    if "_CACHED_PIPELINES[model_type] = pipe" not in content:
+                        old_sched = "self.scheduler = pipe.scheduler"
+                        new_sched = "_CACHED_PIPELINES[model_type] = pipe\n        self.scheduler = pipe.scheduler"
+                        content = content.replace(old_sched, new_sched, 1)
+
+                    old_flux = 'pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.float16)'
+                    new_flux = (
+                        'flux_name = "black-forest-labs/FLUX.1-dev"\n'
+                        '                local_only = False\n'
+                        '                if os.path.isdir("/tmp/flux_pipeline"):\n'
+                        '                    flux_name = "/tmp/flux_pipeline"\n'
+                        '                    local_only = True\n'
+                        '                    print(f"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}", flush=True)\n'
+                        '                pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)\n'
+                        '                pipe = pipe.to(self.device)'
+                    )
+                    if old_flux in content:
+                        content = content.replace(old_flux, new_flux)
+
+                    import re
+                    content = re.sub(
+                        r"def __del__\(self\):[\s\S]*?(?=\s+@contextmanager)",
+                        "def __del__(self):\n        try:\n            if torch is not None and hasattr(torch, 'cuda') and torch.cuda is not None and torch.cuda.is_available():\n                total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)\n                if total_vram_gb < 40 and hasattr(self, 'pipe') and self.pipe is not None:\n                    self.pipe.to('cpu')\n                    torch.cuda.empty_cache()\n        except BaseException:\n            pass\n\n    ",
+                        content
+                    )
                     with open(idu_path, "w") as f:
                         f.write(content)
-                    print(f"[setup_flux] Patched {idu_path} to use /tmp/flux_pipeline")
+                    print(f"[setup_flux] Patched {idu_path} with in-memory pipeline caching")
+                else:
+                    print(f"[setup_flux] {idu_path} already has in-memory pipeline caching active")
             except Exception as e:
                 print(f"[setup_flux] Notice on {idu_path}: {e}")
 

@@ -207,18 +207,68 @@ elif [ "$STAGE" = "2" ]; then
   fi
 
 # ── Eval mode ─────────────────────────────────────────────────────────────────
-elif [ "$STAGE" = "eval" ]; then
-  echo "[INFO] Running evaluation"
-  python eval.py \
-    --data_dir "$DATA_DIR/results_eval/data_eval_JAX" \
-    --temp_dir /tmp/temp_frames \
-    --methods ours_stage1 ours_stage2 \
-    --output_file "/tmp/metrics_${SCENE}.csv" \
-    --frame_rate 30 \
-    --resolution 1024 \
-    --batch_size 32
+elif [ "$STAGE" = "eval" ] || [ "$STAGE" = "3" ]; then
+  echo "[INFO] Running Stage 3: Model Export & Rendering for $SCENE"
+  
+  MODEL_DIR="$DATA_DIR/outputs/${SCENE}_idu"
+  if [ ! -d "$MODEL_DIR" ]; then
+    MODEL_DIR="$DATA_DIR/checkpoints/${SCENE}"
+  fi
+  
+  LATEST_CKPT=$(ls -v "$MODEL_DIR"/chkpnt*.pth 2>/dev/null | tail -n 1 || true)
+  EVAL_ITER=30000
+  if [ -n "$LATEST_CKPT" ] && [ -f "$LATEST_CKPT" ]; then
+    EVAL_ITER=$(basename "$LATEST_CKPT" | grep -o '[0-9]\+' || echo "30000")
+  fi
+  echo "[INFO] Using model at $MODEL_DIR (iteration $EVAL_ITER)"
 
-  gsutil cp "/tmp/metrics_${SCENE}.csv" "${GCS_BUCKET}/eval/"
+  # 1. Export colored 3D Gaussian Splat PLY
+  echo "[INFO] Exporting fused 3D PLY model..."
+  python create_fused_ply.py \
+    -m "$MODEL_DIR" \
+    --iteration "$EVAL_ITER" \
+    --load_from_checkpoints \
+    --output_ply "$MODEL_DIR/fused_${SCENE}_iter${EVAL_ITER}.ply" || echo "[WARN] create_fused_ply non-zero exit"
+
+  # 2. Render orbit fly-through video if trajectory exists
+  SCENE_NUM="${SCENE#JAX_}"
+  SCENE_NUM="${SCENE_NUM#NYC_}"
+  CAM_PATH="camera_paths/JAX/${SCENE_NUM}/r488_e50_fov20.json"
+  if [ ! -f "$CAM_PATH" ]; then
+    CAM_PATH=$(find camera_paths -name "*.json" 2>/dev/null | grep -i "${SCENE_NUM}" | head -n 1 || true)
+  fi
+
+  if [ -n "$CAM_PATH" ] && [ -f "$CAM_PATH" ]; then
+    echo "[INFO] Rendering orbit flight video using $CAM_PATH..."
+    python render_video.py \
+      -m "$MODEL_DIR" \
+      --iteration "$EVAL_ITER" \
+      --load_from_checkpoints \
+      --camera_path "$CAM_PATH" || echo "[WARN] render_video non-zero exit"
+  fi
+
+  # 3. If benchmark comparison dataset exists in GCS, run eval.py
+  if [ -d "$DATA_DIR/results_eval/data_eval_JAX" ]; then
+    echo "[INFO] Found benchmark dataset at $DATA_DIR/results_eval/data_eval_JAX - running eval.py"
+    python eval.py \
+      --data_dir "$DATA_DIR/results_eval/data_eval_JAX" \
+      --temp_dir /tmp/temp_frames \
+      --methods ours_stage1 ours_stage2 \
+      --output_file "/tmp/metrics_${SCENE}.csv" \
+      --frame_rate 30 \
+      --resolution 1024 \
+      --batch_size 32 || true
+    if [ -f "/tmp/metrics_${SCENE}.csv" ] && [ -n "$GCS_BUCKET" ]; then
+      gsutil cp "/tmp/metrics_${SCENE}.csv" "${GCS_BUCKET}/eval/" || true
+    fi
+  else
+    echo "[INFO] Benchmark dataset not found at $DATA_DIR/results_eval/data_eval_JAX - skipping academic eval.py"
+  fi
+
+  # 4. Sync outputs back to GCS if needed
+  if [ -d "$OUTPUT_DIR/${SCENE}_idu" ] && [ -d "$DATA_DIR/outputs" ]; then
+    cp -r "$OUTPUT_DIR/${SCENE}_idu" "$DATA_DIR/outputs/" 2>/dev/null || true
+  fi
 
 else
   echo "[ERROR] Unknown STAGE=$STAGE — must be 1, 2, or eval"

@@ -13,6 +13,7 @@ import os
 import numpy as np
 import torch
 import random
+import re
 
 # Patch safetensors to bypass mmap page-fault stalls over GCS FUSE network mounts
 try:
@@ -994,9 +995,33 @@ def training_idu(dataset, opt, pipe, init_checkpoint_path):
     xx, yy = np.meshgrid(x, y)
     targets = np.stack([xx, yy, np.zeros_like(xx)], axis=-1).reshape(-1, 3).tolist()
     assert len(targets) == opt.idu_grid_size * opt.idu_grid_size
+    # Determine how many episodes have already been completed if resuming
+    completed_episodes = 0
+    if start_checkpoint_path and os.path.exists(start_checkpoint_path):
+        try:
+            m = re.search(r'chkpnt(\d+)\.pth', os.path.basename(start_checkpoint_path))
+            if m:
+                ckpt_iter = int(m.group(1))
+            else:
+                _, ckpt_iter = torch.load(start_checkpoint_path, map_location='cpu', weights_only=False)
+            base_iter = 30000
+            if ckpt_iter > base_iter:
+                completed_episodes = (ckpt_iter - base_iter) // opt.idu_episode_iterations
+                print(f"[IDU Resume] Checkpoint {start_checkpoint_path} is at iteration {ckpt_iter}. Already completed {completed_episodes} episode(s).")
+        except Exception as e:
+            print(f"[IDU Resume] Notice: could not parse iteration from {start_checkpoint_path}: {e}")
+
     if not opt.idu_no_curriculum:
-        
-        for radius, elevation in zip(opt.idu_radius_list, opt.idu_elevation_list):
+        curriculum_pairs = list(zip(opt.idu_radius_list, opt.idu_elevation_list))
+        if completed_episodes >= len(curriculum_pairs):
+            print(f"[IDU Resume] All {len(curriculum_pairs)} curriculum episodes already completed! Exiting cleanly.")
+            return
+
+        if completed_episodes > 0:
+            print(f"[IDU Resume] Skipping {completed_episodes} already-completed episode(s). Running remaining {len(curriculum_pairs) - completed_episodes} episode(s).")
+            curriculum_pairs = curriculum_pairs[completed_episodes:]
+
+        for radius, elevation in curriculum_pairs:
             print(f"Training IDU episode with elevation {elevation} and radius {radius}")
             print(f"# of IDU targets: {len(targets)}")
             start_checkpoint_path = training_idu_episode(
@@ -1010,7 +1035,14 @@ def training_idu(dataset, opt, pipe, init_checkpoint_path):
         print("===== Disable IDU curriculum learning =====")
         assert opt.idu_episode_iterations == 10000, "IDU episode iterations should be 10000"
         assert opt.idu_densify_until_iter == 9000, "IDU episode iterations should be 9000"
-        for _ in range(5):
+        total_runs = 5
+        start_idx = min(completed_episodes, total_runs) if completed_episodes > 0 else 0
+        if start_idx >= total_runs:
+            print(f"[IDU Resume] All {total_runs} iterations already completed. Exiting cleanly.")
+            return
+        if start_idx > 0:
+            print(f"[IDU Resume] Skipping {start_idx} completed runs, executing remaining {total_runs - start_idx}")
+        for _ in range(start_idx, total_runs):
             start_checkpoint_path = training_idu_episode(
                 dataset, opt, pipe, 
                 checkpoint_path=start_checkpoint_path,
