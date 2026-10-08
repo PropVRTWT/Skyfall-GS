@@ -64,6 +64,8 @@ ENV PYTHONUNBUFFERED=1
 # Point HuggingFace cache to a writable location inside the container
 ENV HF_HOME=/app/.cache/huggingface
 ENV TORCH_HOME=/app/.cache/torch
+ENV HF_ENABLE_PARALLEL_LOADING=yes
+ENV HF_HUB_ENABLE_HF_TRANSFER=0
 
 # Runtime system deps (no build tools needed, git needed for git+ pip packages)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -107,6 +109,9 @@ COPY . .
 
 # Apply patches to MoGe (offline GCS fallback) and FlowEdit (pipeline caching & local FLUX)
 RUN python3 patch_submodules.py
+
+# Bake FLUX pipeline into image if weights were staged in flux_blobs during build
+RUN python3 setup_flux.py --target /app/flux_pipeline --blobs /app/flux_blobs && rm -rf /app/flux_blobs
 
 # Make sure MoGe & FlowEdit submodule Python packages are importable
 ENV PYTHONPATH="/app:/app/submodules/MoGe:/app/submodules/FlowEdit:${PYTHONPATH}"

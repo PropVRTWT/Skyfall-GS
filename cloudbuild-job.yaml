@@ -1,6 +1,13 @@
 options:
   logging: CLOUD_LOGGING_ONLY
 
+timeout: '7200s'
+
+substitutions:
+  _BAKE_FLUX: 'true'
+  _BUCKET_NAME: 'stereo-images'
+  _JOB_NAME: 'skyfall-train-job'
+
 steps:
 # Initialize and fetch git submodules recursively
 - name: 'gcr.io/cloud-builders/git'
@@ -18,6 +25,22 @@ steps:
   args: ['-c', 'docker pull us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest || exit 0']
   id: Pulling cached image
 
+# Download FLUX model weights from GCS bucket into workspace for container baking
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      mkdir -p flux_blobs
+      if [ "${_BAKE_FLUX:-true}" = "true" ]; then
+        echo "=== Downloading FLUX weights from GCS to bake into Docker image ==="
+        gcloud storage cp -r "gs://${_BUCKET_NAME}/hf_cache/blobs/*" flux_blobs/ || gsutil -m cp -r "gs://${_BUCKET_NAME}/hf_cache/blobs/*" flux_blobs/ || true
+        echo "Staged $(ls flux_blobs | wc -l) blobs for Docker image baking"
+      else
+        echo "=== Skipping FLUX baking (_BAKE_FLUX=${_BAKE_FLUX}) ==="
+      fi
+  id: Download FLUX weights
+
 # Build the training job image (multi-stage: CUDA kernels compiled in builder stage)
 - name: 'gcr.io/cloud-builders/docker'
   args: [
@@ -28,7 +51,7 @@ steps:
     '.'
   ]
   id: Building the container image
-  timeout: '3600s'
+  timeout: '5400s'
 
 # Tag the image as latest for future caching
 - name: 'gcr.io/cloud-builders/docker'
@@ -39,11 +62,13 @@ steps:
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}']
   id: Pushing the image to registry
+  timeout: '3600s'
 
 # Push latest tag
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs:latest']
   id: Pushing latest tag
+  timeout: '3600s'
 
 # Deploy / update Cloud Run Job
 - name: 'gcr.io/cloud-builders/gcloud'

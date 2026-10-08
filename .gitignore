@@ -10,6 +10,8 @@ outputs
 temp_frames*
 fused
 depth_tmp
+flux_blobs/*
+!flux_blobs/.gitkeep
 
 diff_rasterization/diff_rast.egg-info
 diff_rasterization/dist

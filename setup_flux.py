@@ -2,15 +2,16 @@
 """
 setup_flux.py
 
-Assembles a complete Diffusers FLUX pipeline at /tmp/flux_pipeline
+Assembles a complete Diffusers FLUX pipeline at /tmp/flux_pipeline (or /app/flux_pipeline)
 by copying local configs from /app/flux_template (or ./flux_template)
-and symlinking the 8 large .safetensors blobs from /mnt/gcs/hf_cache/blobs.
+and linking/copying the 8 large .safetensors blobs from GCS or local staging.
 
 This completely bypasses Hugging Face Hub downloads and FUSE write limits!
 """
 import os
 import shutil
 import sys
+import argparse
 
 WEIGHT_MAP = {
     "ae.safetensors": "f7/f73eecf7c469ff442523dc712cc161d631df071bf4d9d793494fbf00cdd80a82",
@@ -23,126 +24,153 @@ WEIGHT_MAP = {
     "vae/diffusion_pytorch_model.safetensors": "44/4479aac938c224dbaef8d126dc178a0650d09140dcc46885be6d7c72bb6f176f"
 }
 
+def is_pipeline_complete(path):
+    if not os.path.isdir(path) or not os.path.isfile(os.path.join(path, "model_index.json")):
+        return False
+    for rel_dest in WEIGHT_MAP.keys():
+        dest = os.path.join(path, rel_dest)
+        if not (os.path.isfile(dest) or os.path.islink(dest)):
+            return False
+    return True
+
+def find_blob_file(blob_dir, blob_rel):
+    # Try nested path: e.g. blob_dir/f7/f73eec...
+    p1 = os.path.join(blob_dir, blob_rel)
+    if os.path.isfile(p1):
+        return p1
+    # Try flat filename: e.g. blob_dir/f73eec...
+    fname = os.path.basename(blob_rel)
+    p2 = os.path.join(blob_dir, fname)
+    if os.path.isfile(p2):
+        return p2
+    # Recursive search
+    for root, _, files in os.walk(blob_dir):
+        if fname in files:
+            return os.path.join(root, fname)
+    return None
+
 def main():
-    target_dir = "/tmp/flux_pipeline"
+    parser = argparse.ArgumentParser(description="Assemble FLUX diffusers pipeline from local cache / blobs")
+    parser.add_argument("--target", default=None, help="Target directory for FLUX pipeline (default: /tmp/flux_pipeline)")
+    parser.add_argument("--blobs", default=None, help="Path to blobs directory containing safetensors")
+    parser.add_argument("--copy", action="store_true", help="Copy instead of symlink")
+    args = parser.parse_args()
+
+    # If baked into container image already at /app/flux_pipeline, we are done
+    if is_pipeline_complete("/app/flux_pipeline"):
+        print("[setup_flux] Complete pre-baked FLUX pipeline detected at /app/flux_pipeline! (0 network I/O)")
+        try:
+            import patch_submodules
+            patch_submodules.patch_flowedit()
+        except Exception:
+            pass
+        return
+
+    target_dir = args.target or "/tmp/flux_pipeline"
+
+    if is_pipeline_complete(target_dir):
+        print(f"[setup_flux] Complete FLUX pipeline already assembled at {target_dir}! Nothing to do.")
+        try:
+            import patch_submodules
+            patch_submodules.patch_flowedit()
+        except Exception:
+            pass
+        return
+
+    # Find template
     template_candidates = [
         "/app/flux_template",
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "flux_template"),
         "./flux_template"
     ]
-    
     template_dir = None
     for cand in template_candidates:
-        if os.path.isdir(cand):
+        if os.path.isdir(cand) and os.path.isfile(os.path.join(cand, "model_index.json")):
             template_dir = cand
             break
             
     if not template_dir:
-        print("[setup_flux] Template directory flux_template not found, skipping assembling /tmp/flux_pipeline")
+        print("[setup_flux] Template directory flux_template not found, skipping assembling FLUX pipeline")
         return
 
-    # Check GCS blobs directory
-    blobs_candidates = [
-        "/mnt/gcs/hf_cache/blobs",
-        "/mnt/gcs/blobs",
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "hf_cache", "blobs"),
-        "./hf_cache/blobs"
-    ]
+    # Find blobs directory
+    if args.blobs:
+        blobs_candidates = [args.blobs]
+    else:
+        blobs_candidates = [
+            "/tmp/flux_blobs",
+            "/workspace/flux_blobs",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "flux_blobs"),
+            "./flux_blobs",
+            "/mnt/gcs/hf_cache/blobs",
+            "/mnt/gcs/blobs",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "hf_cache", "blobs"),
+            "./hf_cache/blobs"
+        ]
+    
     blob_dir = None
     for cand in blobs_candidates:
         if os.path.isdir(cand):
-            blob_dir = cand
-            break
+            # Check if directory has any blob files
+            files = [f for f in os.listdir(cand) if not f.startswith('.')]
+            if files:
+                blob_dir = cand
+                break
 
     if not blob_dir:
-        print(f"[setup_flux] Blob directory not found in {blobs_candidates}")
+        # If running during docker build with empty staging directory, exit cleanly
+        if target_dir == "/app/flux_pipeline":
+            print("[setup_flux] No blob files found for docker baking. Skipping build-time assembly (will assemble at runtime).")
+            return
+        print(f"[setup_flux] Blob directory not found in candidates: {blobs_candidates}")
         return
 
     print(f"[setup_flux] Assembling FLUX pipeline from {template_dir} and weights from {blob_dir} -> {target_dir}")
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
+    os.makedirs(target_dir, exist_ok=True)
 
-    # 1. Copy config template (4.8 MB)
-    shutil.copytree(template_dir, target_dir)
+    # 1. Copy config templates
+    for item in os.listdir(template_dir):
+        s = os.path.join(template_dir, item)
+        d = os.path.join(target_dir, item)
+        if os.path.isdir(s):
+            if not os.path.exists(d):
+                shutil.copytree(s, d)
+        elif not os.path.exists(d):
+            shutil.copy2(s, d)
 
-    # 2. Symlink the large safetensors files
+    # 2. Link or copy large safetensors files
     missing = []
+    should_copy = args.copy or (args.target == "/app/flux_pipeline")
     for rel_dest, blob_rel in WEIGHT_MAP.items():
-        blob_path = os.path.join(blob_dir, blob_rel)
+        blob_path = find_blob_file(blob_dir, blob_rel)
         dest_path = os.path.join(target_dir, rel_dest)
         
-        # Check if blob exists
-        if not os.path.isfile(blob_path):
-            missing.append(blob_path)
+        if not blob_path:
+            missing.append(blob_rel)
             continue
             
         if os.path.exists(dest_path) or os.path.islink(dest_path):
             os.remove(dest_path)
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        os.symlink(blob_path, dest_path)
-        print(f"[setup_flux] Linked {rel_dest} -> {blob_path}")
+
+        if should_copy:
+            print(f"[setup_flux] Copying {rel_dest} <- {blob_path}...")
+            shutil.copy2(blob_path, dest_path)
+        else:
+            os.symlink(blob_path, dest_path)
+            print(f"[setup_flux] Linked {rel_dest} -> {blob_path}")
 
     if missing:
-        print(f"[setup_flux] WARNING: Missing {len(missing)} blob files in GCS: {missing}")
+        print(f"[setup_flux] WARNING: Missing {len(missing)} blob files in {blob_dir}: {missing}")
     else:
         print(f"[setup_flux] SUCCESS: Complete FLUX pipeline assembled at {target_dir} with 0 downloads required!")
 
-    # 3. Ensure idu_refine.py is patched at runtime to load from /tmp/flux_pipeline and cache pipeline
-    for idu_path in ["/app/submodules/FlowEdit/idu_refine.py", "submodules/FlowEdit/idu_refine.py"]:
-        if os.path.isfile(idu_path):
-            try:
-                content = open(idu_path).read()
-                if "_CACHED_PIPELINES" not in content:
-                    content = content.replace("class FlowEditRefineIDU:", "_CACHED_PIPELINES = {}\n\nclass FlowEditRefineIDU:")
-                
-                if "if model_type in _CACHED_PIPELINES:" not in content:
-                    old_block = "if model_type == 'FLUX':"
-                    cached_block = (
-                        "if model_type in _CACHED_PIPELINES:\n"
-                        "            print(f'[FlowEdit] Reusing existing in-memory {model_type} pipeline (0s reload time)!', flush=True)\n"
-                        "            pipe = _CACHED_PIPELINES[model_type]\n"
-                        "            try:\n"
-                        "                pipe = pipe.to(self.device)\n"
-                        "            except Exception as e:\n"
-                        "                print(f'[FlowEdit] pipe.to({self.device}): {e}', flush=True)\n"
-                        "        else:\n"
-                        "            if model_type == 'FLUX':"
-                    )
-                    if old_block in content:
-                        content = content.replace(old_block, cached_block, 1)
-
-                    if "_CACHED_PIPELINES[model_type] = pipe" not in content:
-                        old_sched = "self.scheduler = pipe.scheduler"
-                        new_sched = "_CACHED_PIPELINES[model_type] = pipe\n        self.scheduler = pipe.scheduler"
-                        content = content.replace(old_sched, new_sched, 1)
-
-                    old_flux = 'pipe = FluxPipeline.from_pretrained("black-forest-labs/FLUX.1-dev", torch_dtype=torch.float16)'
-                    new_flux = (
-                        'flux_name = "black-forest-labs/FLUX.1-dev"\n'
-                        '                local_only = False\n'
-                        '                if os.path.isdir("/tmp/flux_pipeline"):\n'
-                        '                    flux_name = "/tmp/flux_pipeline"\n'
-                        '                    local_only = True\n'
-                        '                    print(f"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}", flush=True)\n'
-                        '                pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)\n'
-                        '                pipe = pipe.to(self.device)'
-                    )
-                    if old_flux in content:
-                        content = content.replace(old_flux, new_flux)
-
-                    import re
-                    content = re.sub(
-                        r"def __del__\(self\):[\s\S]*?(?=\s+@contextmanager)",
-                        "def __del__(self):\n        try:\n            if torch is not None and hasattr(torch, 'cuda') and torch.cuda is not None and torch.cuda.is_available():\n                total_vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)\n                if total_vram_gb < 40 and hasattr(self, 'pipe') and self.pipe is not None:\n                    self.pipe.to('cpu')\n                    torch.cuda.empty_cache()\n        except BaseException:\n            pass\n\n    ",
-                        content
-                    )
-                    with open(idu_path, "w") as f:
-                        f.write(content)
-                    print(f"[setup_flux] Patched {idu_path} with in-memory pipeline caching")
-                else:
-                    print(f"[setup_flux] {idu_path} already has in-memory pipeline caching active")
-            except Exception as e:
-                print(f"[setup_flux] Notice on {idu_path}: {e}")
+    # 3. Ensure idu_refine.py is patched at runtime to load from /app or /tmp and cache pipeline
+    try:
+        import patch_submodules
+        patch_submodules.patch_flowedit()
+    except Exception as e:
+        print(f"[setup_flux] Notice running patch_submodules: {e}")
 
 if __name__ == "__main__":
     main()

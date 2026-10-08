@@ -1033,8 +1033,7 @@ def training_idu(dataset, opt, pipe, init_checkpoint_path):
             )
     else:
         print("===== Disable IDU curriculum learning =====")
-        assert opt.idu_episode_iterations == 10000, "IDU episode iterations should be 10000"
-        assert opt.idu_densify_until_iter == 9000, "IDU episode iterations should be 9000"
+        assert opt.idu_densify_until_iter < opt.idu_episode_iterations, "IDU densify until iter must be less than episode iterations"
         total_runs = 5
         start_idx = min(completed_episodes, total_runs) if completed_episodes > 0 else 0
         if start_idx >= total_runs:

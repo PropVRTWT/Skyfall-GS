@@ -56,6 +56,10 @@ else
   exit 1
 fi
 
+# Fast multi-threaded weights loading
+export HF_ENABLE_PARALLEL_LOADING=yes
+export HF_HUB_ENABLE_HF_TRANSFER=0
+
 # Point Hugging Face cache to mounted GCS volume (avoids consuming container RAM)
 export HF_HOME="$DATA_DIR/hf_cache"
 # Direct Hub cache to hf_cache root where blobs and models--* are uploaded
@@ -152,19 +156,26 @@ elif [ "$STAGE" = "2" ]; then
     gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
   fi
 
+  # Step 2 strictly starts from iteration 30,000 checkpoint only (never auto-resume from 36000)
   START_CKPT="$CKPT_DIR/$SCENE/chkpnt30000.pth"
-  # Check if an existing IDU checkpoint exists in GCS outputs to resume from
-  if [ -d "$DATA_DIR/outputs/${SCENE}_idu" ]; then
-    LATEST_IDU_CKPT=$(ls -v "$DATA_DIR/outputs/${SCENE}_idu"/chkpnt*.pth 2>/dev/null | tail -n 1 || true)
-    if [ -n "$LATEST_IDU_CKPT" ] && [ -f "$LATEST_IDU_CKPT" ]; then
-      echo "[INFO] Found existing IDU checkpoint in GCS: $LATEST_IDU_CKPT - resuming from it!"
-      START_CKPT="$LATEST_IDU_CKPT"
-    fi
+  if [ ! -f "$START_CKPT" ] && [ -f "$DATA_DIR/checkpoints/$SCENE/chkpnt30000.pth" ]; then
+    echo "[INFO] Copying chkpnt30000.pth directly from $DATA_DIR/checkpoints/$SCENE/"
+    cp "$DATA_DIR/checkpoints/$SCENE/chkpnt30000.pth" "$START_CKPT"
   fi
 
-  # Assemble pre-cached FLUX pipeline to bypass HF downloads and FUSE write limits
-  echo "[INFO] Setting up local FLUX pipeline from GCS pre-cached blobs..."
-  python3 /app/setup_flux.py 2>/dev/null || python3 setup_flux.py || echo "[WARN] setup_flux.py fallback"
+  if [ ! -f "$START_CKPT" ]; then
+    echo "[ERROR] Required checkpoint chkpnt30000.pth not found! Stage 2 must start from chkpnt30000.pth."
+    exit 1
+  fi
+  echo "[INFO] Stage 2 starting strictly from checkpoint: $START_CKPT (ignoring any existing higher checkpoints)"
+
+  # Check if FLUX pipeline is already baked inside the container image at /app/flux_pipeline
+  if [ -d "/app/flux_pipeline" ] && [ -f "/app/flux_pipeline/ae.safetensors" ]; then
+    echo "[INFO] Using pre-baked FLUX pipeline inside Docker image at /app/flux_pipeline (0s setup time!)"
+  else
+    echo "[INFO] Assembling FLUX pipeline from pre-cached blobs at /tmp/flux_pipeline..."
+    python3 /app/setup_flux.py 2>/dev/null || python3 setup_flux.py || echo "[WARN] setup_flux.py fallback"
+  fi
 
   python train.py \
     -s "$SCENE_DIR" \
@@ -190,11 +201,11 @@ elif [ "$STAGE" = "2" ]; then
     --idu_grid_size 3 \
     --idu_grid_width 512 \
     --idu_grid_height 512 \
-    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-2000}" \
+    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-3000}" \
     --idu_iter_full_train 0 \
     --idu_opacity_cooling_iterations 500 \
     --lambda_pseudo_depth 0.5 \
-    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-1500}" \
+    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-2250}" \
     --idu_train_ratio 0.75
 
   echo "[INFO] Stage 2 complete — uploading IDU outputs to GCS"
