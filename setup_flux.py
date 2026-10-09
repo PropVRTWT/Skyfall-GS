@@ -138,8 +138,9 @@ def main():
         elif not os.path.exists(d):
             shutil.copy2(s, d)
 
-    # 2. Link or copy large safetensors files
+    # 2. Link, move, or copy large safetensors files
     missing = []
+    should_move = blob_dir.rstrip("/").endswith("flux_blobs") and target_dir.startswith("/tmp")
     should_copy = args.copy or (args.target == "/app/flux_pipeline")
     for rel_dest, blob_rel in WEIGHT_MAP.items():
         blob_path = find_blob_file(blob_dir, blob_rel)
@@ -153,12 +154,23 @@ def main():
             os.remove(dest_path)
         os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
-        if should_copy:
+        if should_move:
+            shutil.move(blob_path, dest_path)
+            print(f"[setup_flux] Moved {rel_dest} <- {blob_path}")
+        elif should_copy:
             print(f"[setup_flux] Copying {rel_dest} <- {blob_path}...")
             shutil.copy2(blob_path, dest_path)
         else:
             os.symlink(blob_path, dest_path)
             print(f"[setup_flux] Linked {rel_dest} -> {blob_path}")
+
+    # Free RAM by removing leftover staging files
+    if should_move:
+        try:
+            shutil.rmtree(blob_dir, ignore_errors=True)
+            print(f"[setup_flux] Cleaned up staging directory {blob_dir} to free container RAM")
+        except Exception:
+            pass
 
     if missing:
         print(f"[setup_flux] WARNING: Missing {len(missing)} blob files in {blob_dir}: {missing}")

@@ -4,7 +4,7 @@ patch_submodules.py
 
 Applies runtime and build-time patches to submodule files:
 1. MoGe idu_depth.py: GCS local weight fallback & safe destructor
-2. FlowEdit idu_refine.py: In-memory pipeline caching & /tmp/flux_pipeline usage
+2. FlowEdit idu_refine.py: In-memory pipeline caching, lean sequential GPU loading & RAM cleanup
 """
 import os
 import re
@@ -71,8 +71,44 @@ class FlowEditRefineIDU:
                         local_only = True
                         print(f"[FlowEdit] Using local pre-cached FLUX pipeline at: {flux_name}", flush=True)
                         break
-                pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=torch.float16, low_cpu_mem_usage=True, local_files_only=local_only)
-                pipe = pipe.to(self.device)
+
+                dtype = torch.bfloat16 if (torch.cuda.is_available() and hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported()) else torch.float16
+                try:
+                    import gc
+                    from diffusers import FluxTransformer2DModel, AutoencoderKL
+                    from transformers import CLIPTextModel, T5EncoderModel
+                    print(f"[FlowEdit] Sequentially loading FLUX submodules directly to {self.device} (dtype: {dtype})...", flush=True)
+                    text_enc = CLIPTextModel.from_pretrained(os.path.join(flux_name, "text_encoder"), torch_dtype=dtype, local_files_only=local_only).to(self.device)
+                    gc.collect()
+                    text_enc_2 = T5EncoderModel.from_pretrained(os.path.join(flux_name, "text_encoder_2"), torch_dtype=dtype, local_files_only=local_only).to(self.device)
+                    gc.collect()
+                    transformer = FluxTransformer2DModel.from_pretrained(os.path.join(flux_name, "transformer"), torch_dtype=dtype, local_files_only=local_only).to(self.device)
+                    gc.collect()
+                    vae = AutoencoderKL.from_pretrained(os.path.join(flux_name, "vae"), torch_dtype=dtype, local_files_only=local_only).to(self.device)
+                    gc.collect()
+                    pipe = FluxPipeline.from_pretrained(
+                        flux_name,
+                        text_encoder=text_enc,
+                        text_encoder_2=text_enc_2,
+                        transformer=transformer,
+                        vae=vae,
+                        torch_dtype=dtype,
+                        local_files_only=local_only
+                    )
+                except Exception as e:
+                    print(f"[FlowEdit] Submodule sequential load notice: {e}; falling back to standard from_pretrained...", flush=True)
+                    pipe = FluxPipeline.from_pretrained(flux_name, torch_dtype=dtype, low_cpu_mem_usage=True, local_files_only=local_only)
+                    pipe = pipe.to(self.device)
+
+                # Free RAM disk space in tmpfs now that weights are in GPU VRAM
+                if local_only and flux_name.startswith("/tmp"):
+                    try:
+                        import shutil
+                        shutil.rmtree(flux_name, ignore_errors=True)
+                        print(f"[FlowEdit] Cleaned up {flux_name} from RAM disk, freeing ~35GB host RAM!", flush=True)
+                    except Exception:
+                        pass
+
             elif model_type == 'SD3':
                 pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16, low_cpu_mem_usage=True).to(self.device)
             else:
@@ -108,6 +144,14 @@ def patch_flowedit():
                     r"(_CACHED_PIPELINES\s*=\s*\{\}\s*)?class FlowEditRefineIDU:[\s\S]*?(?=\s+@contextmanager)",
                     FLOWEDIT_CLASS_CODE + "\n    ",
                     content
+                )
+                new_content = new_content.replace(
+                    "image_src = image_src.to(self.device).half()",
+                    "image_src = image_src.to(self.device, dtype=getattr(self.pipe, 'dtype', torch.float16))"
+                )
+                new_content = new_content.replace(
+                    'with torch.autocast("cuda"), torch.inference_mode():',
+                    'with torch.autocast("cuda", dtype=getattr(self.pipe, "dtype", torch.float16)), torch.inference_mode():'
                 )
                 with open(path, "w") as f:
                     f.write(new_content)

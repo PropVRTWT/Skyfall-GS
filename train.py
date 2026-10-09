@@ -15,29 +15,7 @@ import torch
 import random
 import re
 
-# Patch safetensors to bypass mmap page-fault stalls over GCS FUSE network mounts
-try:
-    import safetensors.torch, gc
-    _orig_safetensors_load_file = safetensors.torch.load_file
 
-    def _fast_safetensors_load_file(filename, device="cpu", *args, **kwargs):
-        real_p = os.path.realpath(str(filename))
-        if "/mnt/" in real_p or real_p.startswith("/mnt/gcs") or "blobs" in real_p:
-            print(f"[FastLoad] Streaming {os.path.basename(real_p)} sequentially into memory (bypassing mmap FUSE stalls)...", flush=True)
-            with open(real_p, "rb") as f:
-                content = f.read()
-            tensors = safetensors.torch.load(content)
-            del content
-            if str(device) != "cpu" and device is not None:
-                tensors = {k: v.to(device) for k, v in tensors.items()}
-            gc.collect()
-            return tensors
-        return _orig_safetensors_load_file(filename, device=device, *args, **kwargs)
-
-    safetensors.torch.load_file = _fast_safetensors_load_file
-    print("[FastLoad] safetensors.torch.load_file patched for high-speed sequential GCS streaming", flush=True)
-except Exception:
-    pass
 import matplotlib.pyplot as plt
 from random import randint
 from utils.general_utils import get_expon_lr_func
