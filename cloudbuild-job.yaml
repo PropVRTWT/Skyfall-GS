@@ -1,7 +1,9 @@
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_32'
+  diskSizeGb: 300
 
-timeout: '3600s'
+timeout: '5400s'
 
 steps:
 # Initialize and fetch git submodules recursively
@@ -13,6 +15,28 @@ steps:
       git config --global --add safe.directory /workspace
       git submodule update --init --recursive
   id: Initialize git submodules
+
+# Stage FLUX blobs and MoGe model weights from GCS bucket into build context
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "=== Staging FLUX & MoGe weights from GCS bucket ==="
+      mkdir -p /workspace/flux_blobs /workspace/models/moge-vitl
+      echo "Fast-copying FLUX blobs from gs://stereo-images/hf_cache/blobs/..."
+      gcloud storage cp -r "gs://stereo-images/hf_cache/blobs/*" /workspace/flux_blobs/ || true
+      
+      echo "Fast-copying MoGe weights from gs://stereo-images..."
+      gcloud storage cp "gs://stereo-images/weights/moge-vitl/model.pt" /workspace/models/moge-vitl/model.pt || \
+      gcloud storage cp "gs://stereo-images/models/moge-vitl/model.pt" /workspace/models/moge-vitl/model.pt || true
+      
+      echo "Assembling FLUX pipeline in /workspace/flux_pipeline..."
+      python3 setup_flux.py --target /workspace/flux_pipeline --blobs /workspace/flux_blobs --copy
+      rm -rf /workspace/flux_blobs
+      echo "Model weights staging complete: /workspace/flux_pipeline assembled."
+  id: Stage model weights
+  timeout: '900s'
 
 # Pull the cached image from Artifact Registry (with fallback for first build)
 - name: 'gcr.io/cloud-builders/docker'
@@ -59,13 +83,13 @@ steps:
         echo "Updating Cloud Run Job: ${_JOB_NAME}"
         gcloud run jobs update ${_JOB_NAME} \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
-          --task-timeout=7200s \
+          --task-timeout=3600s \
           --region=us-central1
       else
         echo "Creating Cloud Run Job: ${_JOB_NAME}"
         gcloud run jobs create ${_JOB_NAME} \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
-          --task-timeout=7200s \
+          --task-timeout=3600s \
           --region=us-central1
       fi
   id: Deploy Cloud Run Job

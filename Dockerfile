@@ -116,9 +116,10 @@ RUN python3 patch_submodules.py
 
 # Make sure MoGe & FlowEdit submodule Python packages are importable
 ENV PYTHONPATH="/app:/app/submodules/MoGe:/app/submodules/FlowEdit:${PYTHONPATH}"
+ENV MOGE_MODEL_PATH="/app/models/moge-vitl/model.pt"
 
 # Create directories for GCS mounts and outputs
-RUN mkdir -p /mnt/gcs /mnt/outputs /app/.cache/huggingface /app/.cache/torch
+RUN mkdir -p /mnt/gcs /mnt/outputs /app/.cache/huggingface /app/.cache/torch /app/flux_pipeline /app/models
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

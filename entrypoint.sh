@@ -76,12 +76,12 @@ fi
 mkdir -p "$HF_HOME"
 echo "[INFO] Using Hugging Face cache from GCS: $HF_HOME (Hub Cache: $HF_HUB_CACHE)"
 
-# Check if pre-cached model weights exist in GCS to avoid downloading from Hugging Face
+# Check if pre-cached model weights exist in container or GCS
 if [ -z "${MOGE_MODEL_PATH:-}" ]; then
-  for cand in "$DATA_DIR/weights/moge-vitl/model.pt" "$DATA_DIR/models/moge-vitl/model.pt" "$DATA_DIR/weights/model.pt" "$DATA_DIR/moge-vitl/model.pt"; do
+  for cand in "/app/models/moge-vitl/model.pt" "$DATA_DIR/weights/moge-vitl/model.pt" "$DATA_DIR/models/moge-vitl/model.pt" "$DATA_DIR/weights/model.pt" "$DATA_DIR/moge-vitl/model.pt"; do
     if [ -f "$cand" ]; then
       export MOGE_MODEL_PATH="$cand"
-      echo "[INFO] Found MoGe weights in GCS: $MOGE_MODEL_PATH"
+      echo "[INFO] Found MoGe weights: $MOGE_MODEL_PATH"
       break
     fi
   done
@@ -186,8 +186,10 @@ elif [ "$STAGE" = "2" ]; then
     echo "[INFO] Stage 2 starting from base checkpoint: $START_CKPT"
   fi
 
-  # Assemble FLUX pipeline in fast container RAM disk (/tmp/flux_pipeline)
-  if [ ! -f "/tmp/flux_pipeline/ae.safetensors" ]; then
+  # Check if FLUX pipeline is pre-baked in container or needs assembly in RAM disk
+  if [ -f "/app/flux_pipeline/model_index.json" ] && [ -f "/app/flux_pipeline/ae.safetensors" ]; then
+    echo "[INFO] SUCCESS: Using pre-baked FLUX pipeline at /app/flux_pipeline (0 downloads required)!"
+  elif [ ! -f "/tmp/flux_pipeline/ae.safetensors" ]; then
     echo "[INFO] Setting up FLUX pipeline in RAM disk (/tmp/flux_pipeline)..."
     GCS_SRC="${GCS_BUCKET:-gs://stereo-images}"
     if [[ "$GCS_SRC" != gs://* ]]; then
@@ -237,11 +239,11 @@ elif [ "$STAGE" = "2" ]; then
     --idu_grid_size 3 \
     --idu_grid_width 512 \
     --idu_grid_height 512 \
-    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-3000}" \
+    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-4000}" \
     --idu_iter_full_train 0 \
     --idu_opacity_cooling_iterations 500 \
     --lambda_pseudo_depth 0.5 \
-    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-2250}" \
+    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-3000}" \
     --idu_train_ratio 0.75
 
   echo "[INFO] Stage 2 complete — uploading IDU outputs to GCS"

@@ -24,10 +24,10 @@ def patch_moge():
                 new_init = (
                     'model_path = os.environ.get("MOGE_MODEL_PATH")\n'
                     '        if not model_path:\n'
-                    '            for cand in ["/mnt/gcs/weights/moge-vitl/model.pt", "/mnt/gcs/models/moge-vitl/model.pt", "/mnt/gcs/weights/model.pt", "/mnt/gcs/moge-vitl/model.pt"]:\n'
+                    '            for cand in ["/app/models/moge-vitl/model.pt", "/mnt/gcs/weights/moge-vitl/model.pt", "/mnt/gcs/models/moge-vitl/model.pt", "/mnt/gcs/weights/model.pt", "/mnt/gcs/moge-vitl/model.pt"]:\n'
                     '                if os.path.isfile(cand):\n'
                     '                    model_path = cand\n'
-                    '                    print(f"[MoGeIDU] Found local weights in GCS: {cand}")\n'
+                    '                    print(f"[MoGeIDU] Found local weights: {cand}")\n'
                     '                    break\n'
                     '        if not model_path:\n'
                     '            model_path = "Ruicheng/moge-vitl"\n'

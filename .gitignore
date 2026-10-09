@@ -1,8 +1,10 @@
 *.zip
 *.csv
+.DS_Store
+*/.DS_Store
 
-data/datasets_JAX/*
-data/datasets_NYC/*
+data/*/
+!data/README.md
 results_eval/data_eval_JAX/*
 results_eval/data_eval_NYC/*
 hf_cache/
