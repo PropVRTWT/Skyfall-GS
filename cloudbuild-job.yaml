@@ -59,11 +59,13 @@ steps:
         echo "Updating Cloud Run Job: ${_JOB_NAME}"
         gcloud run jobs update ${_JOB_NAME} \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
+          --task-timeout=7200s \
           --region=us-central1
       else
         echo "Creating Cloud Run Job: ${_JOB_NAME}"
         gcloud run jobs create ${_JOB_NAME} \
           --image=us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA} \
+          --task-timeout=7200s \
           --region=us-central1
       fi
   id: Deploy Cloud Run Job

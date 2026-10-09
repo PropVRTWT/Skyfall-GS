@@ -156,18 +156,35 @@ elif [ "$STAGE" = "2" ]; then
     gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
   fi
 
-  # Step 2 strictly starts from iteration 30,000 checkpoint only (never auto-resume from 36000)
-  START_CKPT="$CKPT_DIR/$SCENE/chkpnt30000.pth"
-  if [ ! -f "$START_CKPT" ] && [ -f "$DATA_DIR/checkpoints/$SCENE/chkpnt30000.pth" ]; then
-    echo "[INFO] Copying chkpnt30000.pth directly from $DATA_DIR/checkpoints/$SCENE/"
-    cp "$DATA_DIR/checkpoints/$SCENE/chkpnt30000.pth" "$START_CKPT"
+  # Check if a later Stage 2 checkpoint exists (e.g. chkpnt39000.pth from a previous run)
+  LATEST_IDU_CKPT=""
+  if [ "${FORCE_START_30K:-false}" != "true" ]; then
+    LATEST_IDU_CKPT=$(ls -v "$DATA_DIR/outputs/${SCENE}_idu"/chkpnt*.pth 2>/dev/null | tail -n 1 || true)
+    if [ -z "$LATEST_IDU_CKPT" ]; then
+      LATEST_IDU_CKPT=$(ls -v "$OUTPUT_DIR/${SCENE}_idu"/chkpnt*.pth 2>/dev/null | tail -n 1 || true)
+    fi
   fi
 
-  if [ ! -f "$START_CKPT" ]; then
-    echo "[ERROR] Required checkpoint chkpnt30000.pth not found! Stage 2 must start from chkpnt30000.pth."
-    exit 1
+  if [ -n "$LATEST_IDU_CKPT" ] && [ -f "$LATEST_IDU_CKPT" ]; then
+    START_CKPT="$LATEST_IDU_CKPT"
+    echo "[INFO] Found existing Stage 2 progress! Resuming directly from checkpoint: $START_CKPT"
+    mkdir -p "$OUTPUT_DIR/${SCENE}_idu"
+    if [ -d "$DATA_DIR/outputs/${SCENE}_idu" ]; then
+      echo "[INFO] Pre-populating $OUTPUT_DIR/${SCENE}_idu with previous checkpoints from $DATA_DIR/outputs/${SCENE}_idu"
+      cp -r "$DATA_DIR/outputs/${SCENE}_idu"/* "$OUTPUT_DIR/${SCENE}_idu/" 2>/dev/null || true
+    fi
+  else
+    START_CKPT="$CKPT_DIR/$SCENE/chkpnt30000.pth"
+    if [ ! -f "$START_CKPT" ] && [ -f "$DATA_DIR/checkpoints/$SCENE/chkpnt30000.pth" ]; then
+      echo "[INFO] Copying chkpnt30000.pth directly from $DATA_DIR/checkpoints/$SCENE/"
+      cp "$DATA_DIR/checkpoints/$SCENE/chkpnt30000.pth" "$START_CKPT"
+    fi
+    if [ ! -f "$START_CKPT" ]; then
+      echo "[ERROR] Required checkpoint chkpnt30000.pth not found! Stage 2 must start from chkpnt30000.pth."
+      exit 1
+    fi
+    echo "[INFO] Stage 2 starting from base checkpoint: $START_CKPT"
   fi
-  echo "[INFO] Stage 2 starting strictly from checkpoint: $START_CKPT (ignoring any existing higher checkpoints)"
 
   # Assemble FLUX pipeline in fast container RAM disk (/tmp/flux_pipeline)
   if [ ! -f "/tmp/flux_pipeline/ae.safetensors" ]; then
