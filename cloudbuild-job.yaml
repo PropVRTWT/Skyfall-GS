@@ -57,7 +57,7 @@ steps:
     '.'
   ]
   id: Building the container image
-  timeout: '3600s'
+  timeout: '5400s'
 
 # Tag the image as latest for future caching
 - name: 'gcr.io/cloud-builders/docker'
