@@ -1107,32 +1107,63 @@
     btn.disabled = true;
     if (runBtn) runBtn.disabled = true;
     const activeBtn = autoStartPipeline ? runBtn : btn;
-    activeBtn.innerHTML = 'Uploading to GCS...';
 
-    const formData = new FormData();
-    formData.append('scene', sceneInput);
-    formData.append('dataset', datasetSelect);
-    formData.append('auto_start', autoStartPipeline ? 'true' : 'false');
-    for (let f of selectedFiles) {
-      formData.append('files', f);
-    }
+    const totalFiles = selectedFiles.length;
+    let uploadedCount = 0;
+    // Upload in batches of 2 files (max ~5-10MB per request) to stay well under Cloud Run's 32MB limit
+    const batchSize = 2;
 
     try {
-      const resp = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.detail || 'Upload failed');
+      for (let i = 0; i < totalFiles; i += batchSize) {
+        const batch = selectedFiles.slice(i, i + batchSize);
+        const formData = new FormData();
+        formData.append('scene', sceneInput);
+        formData.append('dataset', datasetSelect);
+        formData.append('auto_start', 'false');
+        for (let f of batch) {
+          formData.append('files', f);
+        }
 
-      if (data.pipeline_started) {
-        showToast(`✓ Uploaded ${data.uploaded_count} images & Pipeline auto-launched!`, 'success');
+        const pct = Math.round(((i + batch.length) / totalFiles) * 100);
+        activeBtn.innerHTML = `Uploading ${Math.min(i + batch.length, totalFiles)}/${totalFiles} (${pct}%)...`;
+
+        const resp = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error(`Upload error: ${errText.substring(0, 100)}`);
+        }
+        const data = await resp.json();
+        uploadedCount += (data.uploaded_count || batch.length);
+      }
+
+      showToast(`✓ Uploaded all ${uploadedCount} images to GCS!`, 'success');
+
+      if (autoStartPipeline) {
+        activeBtn.innerHTML = 'Starting Pipeline...';
+        showToast('🚀 Automatically launching 4-step pipeline...', 'info');
+
+        const startResp = await fetch('/api/pipeline/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scene: sceneInput,
+            dataset: datasetSelect,
+            steps: [0, 1, 2, 3],
+            episodes_per_run: 2,
+            total_episodes: 6
+          })
+        });
+        const startData = await startResp.json();
+        if (!startResp.ok) throw new Error(startData.detail || 'Pipeline start failed');
+
+        showToast(`✓ Pipeline auto-launched for ${sceneInput}!`, 'success');
         pipelineActive = true;
         document.getElementById('launch-pipeline-btn').disabled = true;
         document.getElementById('cancel-pipeline-btn').style.display = 'inline-flex';
         pollPipelineStatus();
-      } else {
-        showToast(`✓ Uploaded ${data.uploaded_count} images to ${data.gcs_uri}`, 'success');
       }
 
       activeBtn.innerHTML = '✓ Complete';
@@ -1142,6 +1173,7 @@
         btn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images Only`;
         if (runBtn) runBtn.innerHTML = `&#128640; Upload &amp; Auto-Run Pipeline`;
       }, 3000);
+
     } catch (e) {
       showToast('Upload error: ' + e.message, 'error');
       btn.disabled = false;
