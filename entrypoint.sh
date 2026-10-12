@@ -77,6 +77,10 @@ mkdir -p "$HF_HOME"
 echo "[INFO] Using Hugging Face cache from GCS: $HF_HOME (Hub Cache: $HF_HUB_CACHE)"
 
 # Check if pre-cached model weights exist in container or GCS
+if [ -n "${MOGE_MODEL_PATH:-}" ] && [ ! -f "$MOGE_MODEL_PATH" ]; then
+  echo "[WARN] MOGE_MODEL_PATH=$MOGE_MODEL_PATH not found on disk, checking standard locations..."
+  unset MOGE_MODEL_PATH
+fi
 if [ -z "${MOGE_MODEL_PATH:-}" ]; then
   for cand in "/app/models/moge-vitl/model.pt" "$DATA_DIR/weights/moge-vitl/model.pt" "$DATA_DIR/models/moge-vitl/model.pt" "$DATA_DIR/weights/model.pt" "$DATA_DIR/moge-vitl/model.pt"; do
     if [ -f "$cand" ]; then

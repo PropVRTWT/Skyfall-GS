@@ -27,9 +27,12 @@ steps:
       echo "Fast-copying FLUX blobs from gs://stereo-images/hf_cache/blobs/..."
       gcloud storage cp -r "gs://stereo-images/hf_cache/blobs/*" /workspace/flux_blobs/ || true
       
-      echo "Fast-copying MoGe weights from gs://stereo-images..."
-      gcloud storage cp "gs://stereo-images/weights/moge-vitl/model.pt" /workspace/models/moge-vitl/model.pt || \
-      gcloud storage cp "gs://stereo-images/models/moge-vitl/model.pt" /workspace/models/moge-vitl/model.pt || true
+      echo "Copying MoGe weights..."
+      if ! gcloud storage cp "gs://stereo-images/weights/moge-vitl/model.pt" /workspace/models/moge-vitl/model.pt 2>/dev/null && \
+         ! gcloud storage cp "gs://stereo-images/models/moge-vitl/model.pt" /workspace/models/moge-vitl/model.pt 2>/dev/null; then
+        echo "MoGe weights not found in GCS, downloading from Hugging Face into image..."
+        curl -fsSL -o /workspace/models/moge-vitl/model.pt "https://huggingface.co/Ruicheng/moge-vitl/resolve/main/model.pt" || rm -f /workspace/models/moge-vitl/model.pt
+      fi
       
       echo "Assembling FLUX pipeline in /workspace/flux_pipeline..."
       python3 setup_flux.py --target /workspace/flux_pipeline --blobs /workspace/flux_blobs --copy
