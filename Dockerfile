@@ -75,6 +75,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libopenexr-dev \
     fuse \
     curl gnupg lsb-release \
+    colmap ffmpeg imagemagick \
     && rm -rf /var/lib/apt/lists/*
 
 # Install gcsfuse and google-cloud-cli for high-speed parallel GCS transfers

@@ -112,8 +112,56 @@ if [ -z "$SCENE_DIR" ]; then
   echo "[WARN] Could not auto-detect transforms_train.json. Using fallback: $SCENE_DIR"
 fi
 
+# ── Stage 0: Camera Pose Estimation (COLMAP SfM) ──────────────────────────────
+if [ "$STAGE" = "0" ] || [ "$STAGE" = "colmap" ] || [ "$STAGE" = "sfm" ]; then
+  echo "[INFO] Starting Stage 0 — Camera Pose Estimation (COLMAP)"
+
+  RAW_IMG_DIR=""
+  for cand in \
+    "$DATA_DIR/datasets/$DATASET/$SCENE/input" \
+    "$DATA_DIR/datasets/$DATASET/$SCENE/images" \
+    "$DATA_DIR/datasets/$SCENE/input" \
+    "$DATA_DIR/datasets/$SCENE/images" \
+    "$DATA_DIR/$SCENE/images"; do
+    if [ -d "$cand" ] && [ "$(ls -A "$cand" 2>/dev/null)" ]; then
+      RAW_IMG_DIR="$cand"
+      echo "[INFO] Found input images at: $RAW_IMG_DIR"
+      break
+    fi
+  done
+
+  if [ -z "$RAW_IMG_DIR" ]; then
+    echo "[ERROR] No input images found in GCS for $SCENE! Expected images at /datasets/$DATASET/$SCENE/images/"
+    exit 1
+  fi
+
+  TARGET_SCENE_DIR="$DATA_DIR/datasets/$DATASET/$SCENE"
+  mkdir -p "$TARGET_SCENE_DIR"
+
+  WORK_DIR="/tmp/colmap_work"
+  rm -rf "$WORK_DIR"
+  mkdir -p "$WORK_DIR/input" "$WORK_DIR/images"
+
+  echo "[INFO] Staging $(ls "$RAW_IMG_DIR" | wc -l) images into $WORK_DIR/input..."
+  cp -r "$RAW_IMG_DIR"/* "$WORK_DIR/input/"
+
+  echo "[INFO] Running COLMAP feature extraction & bundle adjustment..."
+  python3 convert.py -s "$WORK_DIR" --no_gpu 0 || python3 convert.py -s "$WORK_DIR" --no_gpu
+
+  echo "[INFO] Converting COLMAP reconstruction to Skyfall-GS format..."
+  python3 scripts/colmap2nerf.py --sparse_dir "$WORK_DIR/sparse/0" --output_dir "$WORK_DIR"
+
+  echo "[INFO] Syncing camera poses and sparse points to GCS: $TARGET_SCENE_DIR"
+  mkdir -p "$TARGET_SCENE_DIR/images" "$TARGET_SCENE_DIR/sparse/0"
+  cp -r "$WORK_DIR/images"/* "$TARGET_SCENE_DIR/images/" 2>/dev/null || true
+  cp -r "$WORK_DIR/sparse/0"/* "$TARGET_SCENE_DIR/sparse/0/" 2>/dev/null || true
+  cp "$WORK_DIR"/transforms*.json "$TARGET_SCENE_DIR/" 2>/dev/null || true
+  cp "$WORK_DIR"/points3D.* "$TARGET_SCENE_DIR/" 2>/dev/null || true
+
+  echo "[INFO] Stage 0 complete! Generated transforms_train.json and points3D.ply in GCS."
+
 # ── Stage 1: Reconstruction ───────────────────────────────────────────────────
-if [ "$STAGE" = "1" ]; then
+elif [ "$STAGE" = "1" ]; then
   echo "[INFO] Starting Stage 1 — Reconstruction"
 
   python train.py \
@@ -148,7 +196,7 @@ if [ "$STAGE" = "1" ]; then
 
 # ── Stage 2: IDU Synthesis ────────────────────────────────────────────────────
 elif [ "$STAGE" = "2" ]; then
-  echo "[INFO] Starting Stage 2 — IDU Synthesis"
+  echo "[INFO] Starting Stage 2 — IDU Synthesis (6 Episodes x 10,000 iters)"
 
   # Download Stage 1 checkpoint from GCS
   echo "[INFO] Fetching Stage 1 checkpoint from GCS"
@@ -160,7 +208,7 @@ elif [ "$STAGE" = "2" ]; then
     gsutil -m cp -r "${GCS_BUCKET}/checkpoints/$SCENE" "$CKPT_DIR/"
   fi
 
-  # Check if a later Stage 2 checkpoint exists (e.g. chkpnt39000.pth from a previous run)
+  # Check if a later Stage 2 checkpoint exists (e.g. chkpnt50000.pth from a previous run)
   LATEST_IDU_CKPT=""
   if [ "${FORCE_START_30K:-false}" != "true" ]; then
     LATEST_IDU_CKPT=$(ls -v "$DATA_DIR/outputs/${SCENE}_idu"/chkpnt*.pth 2>/dev/null | tail -n 1 || true)
@@ -219,6 +267,15 @@ elif [ "$STAGE" = "2" ]; then
     python3 /app/setup_flux.py --target /tmp/flux_pipeline --blobs /tmp/flux_blobs
   fi
 
+  DATASET_TYPE="custom_v1"
+  if [[ "$DATASET" == *"JAX"* ]] || [[ "$SCENE" == *"JAX"* ]]; then
+    DATASET_TYPE="jax_v1"
+  elif [[ "$DATASET" == *"NYC"* ]] || [[ "$SCENE" == *"NYC"* ]]; then
+    DATASET_TYPE="nyc_v1"
+  fi
+
+  export MAX_EPISODES_PER_RUN="${MAX_EPISODES_PER_RUN:-2}"
+
   python train.py \
     -s "$SCENE_DIR" \
     -m "$OUTPUT_DIR/${SCENE}_idu" \
@@ -235,6 +292,7 @@ elif [ "$STAGE" = "2" ]; then
     --idu_refine \
     --idu_num_samples_per_view "${IDU_NUM_SAMPLES_PER_VIEW:-1}" \
     --densify_grad_threshold 0.0002 \
+    --datasets_type "$DATASET_TYPE" \
     --idu_num_cams "${IDU_NUM_CAMS:-6}" \
     --idu_use_flow_edit \
     --idu_render_size 1024 \
@@ -243,14 +301,14 @@ elif [ "$STAGE" = "2" ]; then
     --idu_grid_size 3 \
     --idu_grid_width 512 \
     --idu_grid_height 512 \
-    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-4000}" \
+    --idu_episode_iterations "${IDU_EPISODE_ITERATIONS:-10000}" \
     --idu_iter_full_train 0 \
     --idu_opacity_cooling_iterations 500 \
     --lambda_pseudo_depth 0.5 \
-    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-3000}" \
+    --idu_densify_until_iter "${IDU_DENSIFY_UNTIL_ITER:-9000}" \
     --idu_train_ratio 0.75
 
-  echo "[INFO] Stage 2 complete — uploading IDU outputs to GCS"
+  echo "[INFO] Stage 2 chunk complete — uploading IDU outputs to GCS"
   if command -v gsutil &> /dev/null && [ -n "$GCS_BUCKET" ]; then
     gsutil -m cp -r "$OUTPUT_DIR/${SCENE}_idu" "${GCS_BUCKET}/outputs/"
   else
@@ -291,6 +349,21 @@ elif [ "$STAGE" = "eval" ] || [ "$STAGE" = "3" ]; then
     CAM_PATH=$(find camera_paths -name "*.json" 2>/dev/null | grep -i "${SCENE_NUM}" | head -n 1 || true)
   fi
 
+  if [ -z "$CAM_PATH" ] || [ ! -f "$CAM_PATH" ]; then
+    echo "[INFO] No pre-computed camera path found. Generating dynamic orbit flight path..."
+    mkdir -p /tmp/orbit_path
+    python3 gen_render_path.py \
+      --target 0,0,0 \
+      --elevation 55 \
+      --radius 250 \
+      --num_frame 120 \
+      --fps 24 \
+      --height 1024 \
+      --width 1024 \
+      --output_folder /tmp/orbit_path 2>/dev/null || true
+    CAM_PATH="/tmp/orbit_path/c2ws.json"
+  fi
+
   if [ -n "$CAM_PATH" ] && [ -f "$CAM_PATH" ]; then
     echo "[INFO] Rendering orbit flight video using $CAM_PATH..."
     python render_video.py \
@@ -298,6 +371,19 @@ elif [ "$STAGE" = "eval" ] || [ "$STAGE" = "3" ]; then
       --iteration "$EVAL_ITER" \
       --load_from_checkpoints \
       --camera_path "$CAM_PATH" || echo "[WARN] render_video non-zero exit"
+
+    # Locate generated video and create a standardized orbit_flight.mp4
+    LATEST_VIDEO=$(find "$MODEL_DIR" -name "*.mp4" 2>/dev/null | head -n 1 || true)
+    if [ -n "$LATEST_VIDEO" ] && [ -f "$LATEST_VIDEO" ]; then
+      cp "$LATEST_VIDEO" "$MODEL_DIR/orbit_flight.mp4" 2>/dev/null || true
+      echo "[INFO] Standardized orbit video ready at: $MODEL_DIR/orbit_flight.mp4"
+    fi
+  fi
+
+  # Standardize fused PLY name
+  if [ -f "$MODEL_DIR/fused_${SCENE}_iter${EVAL_ITER}.ply" ]; then
+    cp "$MODEL_DIR/fused_${SCENE}_iter${EVAL_ITER}.ply" "$MODEL_DIR/fused_model.ply" 2>/dev/null || true
+    echo "[INFO] Standardized fused PLY model ready at: $MODEL_DIR/fused_model.ply"
   fi
 
   # 3. If benchmark comparison dataset exists in GCS, run eval.py
@@ -318,13 +404,21 @@ elif [ "$STAGE" = "eval" ] || [ "$STAGE" = "3" ]; then
     echo "[INFO] Benchmark dataset not found at $DATA_DIR/results_eval/data_eval_JAX - skipping academic eval.py"
   fi
 
-  # 4. Sync outputs back to GCS if needed
-  if [ -d "$OUTPUT_DIR/${SCENE}_idu" ] && [ -d "$DATA_DIR/outputs" ]; then
-    cp -r "$OUTPUT_DIR/${SCENE}_idu" "$DATA_DIR/outputs/" 2>/dev/null || true
+  # 4. Sync outputs back to GCS
+  echo "[INFO] Syncing final Stage 3 outputs to GCS..."
+  mkdir -p "$DATA_DIR/outputs/${SCENE}_idu"
+  if [ -d "$MODEL_DIR" ] && [ "$MODEL_DIR" != "$DATA_DIR/outputs/${SCENE}_idu" ]; then
+    cp -r "$MODEL_DIR"/* "$DATA_DIR/outputs/${SCENE}_idu/" 2>/dev/null || true
+  fi
+  if [ -d "$OUTPUT_DIR/${SCENE}_idu" ]; then
+    cp -r "$OUTPUT_DIR/${SCENE}_idu"/* "$DATA_DIR/outputs/${SCENE}_idu/" 2>/dev/null || true
+  fi
+  if command -v gsutil &> /dev/null && [ -n "$GCS_BUCKET" ]; then
+    gsutil -m cp -r "$MODEL_DIR"/* "${GCS_BUCKET}/outputs/${SCENE}_idu/" 2>/dev/null || true
   fi
 
 else
-  echo "[ERROR] Unknown STAGE=$STAGE — must be 1, 2, or eval"
+  echo "[ERROR] Unknown STAGE=$STAGE — must be 0, 1, 2, or 3 (eval)"
   exit 1
 fi
 

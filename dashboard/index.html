@@ -3,630 +3,1396 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Skyfall-GS · Job Dashboard</title>
-  <meta name="description" content="Monitor and trigger Skyfall-GS Cloud Run Jobs." />
+  <title>Skyfall-GS · Neural Satellite Gaussian Splatting &amp; IDU Studio</title>
+  <meta name="description" content="End-to-End Satellite 3D Gaussian Splatting and IDU Refinement with Auto-Resumed Cloud Run Jobs" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  
   <style>
     :root {
-      --bg:      #080b12;
-      --s1:      #0f1420;
-      --s2:      #141926;
-      --border:  #1c2438;
-      --acc:     #4f8ef7;
-      --acc2:    #7c3aed;
-      --green:   #22c55e;
-      --yellow:  #f59e0b;
-      --red:     #ef4444;
-      --text:    #e2e8f0;
-      --muted:   #64748b;
-      --code:    #0d1117;
+      --bg: #07090e;
+      --s1: #0d121d;
+      --s2: #121826;
+      --s3: #182032;
+      --border: #1e293b;
+      --border-bright: #334155;
+      --acc: #3b82f6;
+      --acc-glow: rgba(59, 130, 246, 0.35);
+      --acc-purple: #8b5cf6;
+      --acc-cyan: #06b6d4;
+      --green: #10b981;
+      --green-glow: rgba(16, 185, 129, 0.3);
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --text: #f1f5f9;
+      --text-muted: #64748b;
+      --text-dim: #94a3b8;
+      --radius: 14px;
+      --radius-sm: 8px;
     }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
     body {
       font-family: 'Inter', sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-    }
-    body::before {
-      content: '';
-      position: fixed; inset: 0;
-      background:
-        radial-gradient(ellipse 70% 50% at 10% 0%, rgba(79,142,247,.10) 0%, transparent 60%),
-        radial-gradient(ellipse 50% 60% at 90% 100%, rgba(124,58,237,.08) 0%, transparent 60%);
-      pointer-events: none; z-index: 0;
+      overflow-x: hidden;
+      line-height: 1.5;
     }
 
-    /* ── Layout ── */
-    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px; position: relative; z-index: 1; }
+    /* Ambient background glows */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 15% -10%, rgba(59, 130, 246, 0.12) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 60% at 85% 110%, rgba(139, 92, 246, 0.10) 0%, transparent 60%),
+        radial-gradient(circle 400px at 50% 30%, rgba(6, 182, 212, 0.04) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+      position: relative;
+      z-index: 1;
+    }
 
     /* ── Header ── */
     header {
       padding: 32px 0 24px;
       border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-    }
-    .logo {
-      width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
-      background: linear-gradient(135deg, var(--acc), var(--acc2));
-      display: flex; align-items: center; justify-content: center;
-      font-size: 22px;
-      box-shadow: 0 0 24px rgba(79,142,247,.3);
-    }
-    .header-text h1 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.4px; }
-    .header-text p  { font-size: .82rem; color: var(--muted); margin-top: 2px; }
-    .header-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
-    .config-badge {
-      font-size: .72rem; font-family: 'JetBrains Mono', monospace;
-      background: var(--s2); border: 1px solid var(--border);
-      border-radius: 6px; padding: 5px 10px; color: var(--muted);
-    }
-    #refresh-btn {
-      background: linear-gradient(135deg, var(--acc), var(--acc2));
-      border: none; border-radius: 8px;
-      padding: 9px 18px; font-size: .82rem; font-weight: 600;
-      color: #fff; cursor: pointer;
-      transition: opacity .15s, transform .15s;
-      box-shadow: 0 4px 16px rgba(79,142,247,.25);
-    }
-    #refresh-btn:hover { opacity: .9; transform: translateY(-1px); }
-    #refresh-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-
-    /* ── Stat bar ── */
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin: 24px 0; }
-    .stat {
-      background: var(--s1); border: 1px solid var(--border); border-radius: 12px;
-      padding: 18px 20px;
-    }
-    .stat-label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); }
-    .stat-val { font-size: 1.6rem; font-weight: 800; margin-top: 4px; }
-    .stat-val.green  { color: var(--green); }
-    .stat-val.yellow { color: var(--yellow); }
-    .stat-val.red    { color: var(--red); }
-    .stat-val.blue   { color: var(--acc); }
-
-    /* ── Section label ── */
-    .section-label {
-      font-size: .78rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 1.1px; color: var(--muted);
-      display: flex; align-items: center; gap: 8px;
-      margin: 28px 0 12px;
-    }
-    .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-
-    /* ── Trigger form ── */
-    .trigger-card {
-      background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
-      padding: 22px 24px;
-    }
-    .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-top: 16px; }
-    .field { display: flex; flex-direction: column; gap: 5px; }
-    .field label { font-size: .75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
-    .field select, .field input {
-      background: var(--s2); border: 1px solid var(--border);
-      border-radius: 8px; padding: 9px 12px;
-      color: var(--text); font-size: .85rem; font-family: inherit;
-      outline: none; transition: border-color .15s;
-      min-width: 160px;
-    }
-    .field select:focus, .field input:focus { border-color: var(--acc); }
-    #trigger-btn {
-      background: linear-gradient(135deg, var(--green), #16a34a);
-      border: none; border-radius: 8px;
-      padding: 10px 22px; font-size: .85rem; font-weight: 700;
-      color: #fff; cursor: pointer;
-      transition: opacity .15s, transform .15s;
-      box-shadow: 0 4px 16px rgba(34,197,94,.2);
-      white-space: nowrap;
-    }
-    #trigger-btn:hover { opacity: .9; transform: translateY(-1px); }
-    #trigger-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-
-    #trigger-msg {
-      margin-top: 12px; font-size: .82rem; border-radius: 8px; padding: 10px 14px;
-      display: none;
-    }
-    #trigger-msg.success { background: rgba(34,197,94,.1); color: #86efac; border: 1px solid rgba(34,197,94,.2); display: block; }
-    #trigger-msg.error   { background: rgba(239,68,68,.1);  color: #fca5a5; border: 1px solid rgba(239,68,68,.2);  display: block; }
-
-    /* ── Scene pills and quick select ── */
-    .scene-meta-box {
-      margin-top: 14px;
-      padding-top: 14px;
-      border-top: 1px dashed var(--border);
       display: flex;
-      flex-direction: column;
-      gap: 10px;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
     }
-    .scene-meta-header {
+
+    .brand-logo {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      box-shadow: 0 0 25px var(--acc-glow);
+      flex-shrink: 0;
+    }
+
+    .brand-info h1 {
+      font-size: 1.45rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #ffffff 40%, #93c5fd 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-info p {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    .header-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .config-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      background: var(--s2);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 999px;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .config-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .btn {
+      background: var(--s2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 16px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      border-color: var(--border-bright);
+      background: var(--s3);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--acc), var(--acc-purple));
+      border: none;
+      color: #fff;
+      box-shadow: 0 4px 18px var(--acc-glow);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 6px 24px rgba(59, 130, 246, 0.5);
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #10b981, #059669);
+      border: none;
+      color: #fff;
+      box-shadow: 0 4px 18px var(--green-glow);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+
+    /* ── Main Grid ── */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 28px;
+      margin-top: 28px;
+    }
+
+    /* ── Section Cards ── */
+    .glass-card {
+      background: var(--s1);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      position: relative;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-title-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
+      margin-bottom: 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
     }
-    .scene-meta-label {
-      font-size: .73rem;
+
+    .card-title {
+      font-size: 1rem;
       font-weight: 700;
-      color: var(--muted);
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-title .badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    /* ── Uploader Dropzone ── */
+    .dropzone {
+      border: 2px dashed var(--border-bright);
+      border-radius: var(--radius);
+      padding: 36px 20px;
+      text-align: center;
+      background: rgba(18, 24, 38, 0.4);
+      cursor: pointer;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--acc);
+      background: rgba(59, 130, 246, 0.06);
+      box-shadow: 0 0 25px rgba(59, 130, 246, 0.15);
+    }
+
+    .dropzone-icon {
+      font-size: 40px;
+      margin-bottom: 12px;
+      display: inline-block;
+      animation: float 3s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
+    .dropzone-title {
+      font-size: 1.05rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .dropzone-subtitle {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+    }
+
+    .dropzone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Thumbnail Preview Grid */
+    .preview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+      max-height: 380px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .preview-item {
+      position: relative;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: var(--s2);
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .preview-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .preview-item .remove-btn {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      border: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      font-size: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s;
+    }
+
+    .preview-item .remove-btn:hover {
+      background: var(--red);
+    }
+
+    .preview-item .caption {
+      position: absolute;
+      bottom: 0;
+      inset-x: 0;
+      background: rgba(7, 9, 14, 0.8);
+      padding: 4px 6px;
+      font-size: 0.65rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Upload Controls */
+    .upload-controls {
+      display: flex;
+      gap: 14px;
+      align-items: flex-end;
+      margin-top: 18px;
+      flex-wrap: wrap;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .form-group label {
+      font-size: 0.72rem;
+      font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: .6px;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+    }
+
+    .form-group input, .form-group select {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.85rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input:focus, .form-group select:focus {
+      border-color: var(--acc);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    /* ── 4-Stage Stepper ── */
+    .stepper-container {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    @media (max-width: 860px) {
+      .stepper-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .step-card {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+      position: relative;
+      transition: all 0.2s ease;
+      cursor: pointer;
+    }
+
+    .step-card:hover {
+      border-color: var(--border-bright);
+    }
+
+    .step-card.active {
+      border-color: var(--acc);
+      background: rgba(59, 130, 246, 0.08);
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
+    }
+
+    .step-card.completed {
+      border-color: rgba(16, 185, 129, 0.4);
+      background: rgba(16, 185, 129, 0.04);
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+
+    .step-num {
+      font-size: 0.72rem;
+      font-weight: 800;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+    }
+
+    .step-card.active .step-num { color: var(--acc); }
+    .step-card.completed .step-num { color: var(--green); }
+
+    .step-state-badge {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .badge-idle { background: var(--s3); color: var(--text-muted); }
+    .badge-running { background: rgba(245, 158, 11, 0.2); color: var(--yellow); }
+    .badge-done { background: rgba(16, 185, 129, 0.2); color: var(--green); }
+    .badge-failed { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+
+    .step-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .step-desc {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      line-height: 1.4;
+    }
+
+    .sub-chunk-tags {
+      display: flex;
+      gap: 4px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    .chunk-tag {
+      font-size: 0.62rem;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--s3);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+
+    .chunk-tag.done {
+      background: rgba(16, 185, 129, 0.15);
+      color: #6ee7b7;
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    /* ── Live Progress Monitor ── */
+    .monitor-box {
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 16px 20px;
+      margin-top: 18px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .monitor-pulse {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--acc);
+      box-shadow: 0 0 12px var(--acc);
+      animation: pulse 1.5s infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.6; }
+    }
+
+    .monitor-details {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .monitor-title {
+      font-size: 0.88rem;
+      font-weight: 700;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    .scene-count-badge {
-      background: var(--s2);
-      border: 1px solid var(--border);
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: .7rem;
-      color: #93c5fd;
-      font-weight: 600;
-    }
-    .scene-pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .scene-pill {
-      background: var(--s2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 5px 11px;
-      font-size: .78rem;
-      font-family: 'JetBrains Mono', monospace;
-      color: var(--muted);
-      cursor: pointer;
-      transition: all .15s ease;
-      user-select: none;
-    }
-    .scene-pill:hover {
-      border-color: var(--acc);
-      color: #fff;
-      background: rgba(99,102,241,.15);
-      transform: translateY(-1px);
-    }
-    .scene-pill.active {
-      background: rgba(99,102,241,.22);
-      border-color: var(--acc);
-      color: #c7d2fe;
-      font-weight: 600;
-      box-shadow: 0 0 0 1px var(--acc);
+
+    .monitor-subtitle {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-top: 2px;
     }
 
-    /* ── Executions table ── */
-    .table-wrap {
-      background: var(--s1); border: 1px solid var(--border); border-radius: 14px;
+    /* ── Results Tabs & Media ── */
+    .tabs-nav {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 7px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      background: var(--s2);
+    }
+
+    .tab-btn.active {
+      color: #fff;
+      background: var(--s3);
+      border-color: var(--border-bright);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Video Player Box */
+    .video-container {
+      width: 100%;
+      max-height: 520px;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: #000;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .video-container video {
+      width: 100%;
+      max-height: 520px;
+      outline: none;
+    }
+
+    /* 3D Splat Viewer Placeholder / Frame */
+    .splat-viewer-box {
+      height: 480px;
+      background: radial-gradient(circle at center, #111827 0%, #070a12 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       overflow: hidden;
     }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: var(--s2); padding: 12px 16px; text-align: left;
-         font-size: .72rem; font-weight: 700; text-transform: uppercase;
-         letter-spacing: .8px; color: var(--muted); }
-    td { padding: 13px 16px; font-size: .83rem; border-top: 1px solid var(--border); }
-    tr:hover td { background: var(--s2); }
-    .mono { font-family: 'JetBrains Mono', monospace; font-size: .78rem; }
 
-    .badge {
-      display: inline-flex; align-items: center; gap: 5px;
-      padding: 3px 10px; border-radius: 999px;
-      font-size: .72rem; font-weight: 600;
+    .splat-canvas-placeholder {
+      text-align: center;
+      padding: 20px;
     }
-    .badge-running  { background: rgba(245,158,11,.12); color: var(--yellow); border: 1px solid rgba(245,158,11,.25); }
-    .badge-success  { background: rgba(34,197,94,.12);  color: var(--green);  border: 1px solid rgba(34,197,94,.25); }
-    .badge-failed   { background: rgba(239,68,68,.12);  color: var(--red);    border: 1px solid rgba(239,68,68,.25); }
-    .badge-unknown  { background: rgba(100,116,139,.12);color: var(--muted);  border: 1px solid rgba(100,116,139,.25); }
 
-    #empty-row td { text-align: center; color: var(--muted); padding: 32px; }
-
-    /* ── Loading spinner ── */
-    .spinner {
-      width: 18px; height: 18px; border: 2px solid var(--border);
-      border-top-color: var(--acc); border-radius: 50%;
-      animation: spin .7s linear infinite; display: inline-block;
+    /* Executions Table */
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 14px;
     }
-    @keyframes spin { to { transform: rotate(360deg); } }
 
-    /* ── Toast ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      background: var(--s2);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+    }
+
+    td {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    tr:hover td {
+      background: rgba(18, 24, 38, 0.6);
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Toast Notification */
     #toast {
-      position: fixed; bottom: 24px; right: 24px;
-      background: var(--s1); border: 1px solid var(--border);
-      border-radius: 10px; padding: 12px 18px;
-      font-size: .82rem; color: var(--text);
-      box-shadow: 0 8px 32px rgba(0,0,0,.4);
-      transform: translateY(80px); opacity: 0;
-      transition: transform .3s, opacity .3s;
-      z-index: 999;
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--s2);
+      border: 1px solid var(--border-bright);
+      padding: 12px 20px;
+      border-radius: var(--radius-sm);
+      font-size: 0.84rem;
+      box-shadow: 0 10px 35px rgba(0,0,0,0.5);
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 9999;
     }
-    #toast.show { transform: translateY(0); opacity: 1; }
 
-    footer { text-align: center; padding: 32px 0 24px; color: var(--muted); font-size: .74rem; }
+    #toast.show {
+      transform: translateY(0);
+      opacity: 1;
+    }
 
-    @media (max-width: 600px) {
-      .header-actions { width: 100%; }
-      .form-row { flex-direction: column; }
+    #toast.success { border-color: var(--green); color: #86efac; }
+    #toast.error { border-color: var(--red); color: #fca5a5; }
+
+    footer {
+      text-align: center;
+      padding: 40px 0 20px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      margin-top: 40px;
     }
   </style>
 </head>
 <body>
-<div class="wrap">
 
+<div class="wrap">
   <!-- Header -->
   <header>
-    <div class="logo">&#128752;</div>
-    <div class="header-text">
-      <h1>Skyfall-GS &middot; Job Dashboard</h1>
-      <p>Monitor and trigger Cloud Run Job executions</p>
+    <div class="brand-logo">&#128752;</div>
+    <div class="brand-info">
+      <h1>Skyfall-GS &middot; Neural Satellite Gaussian Splatting Studio</h1>
+      <p>Orchestrated 4-Step Pipeline &amp; Curriculum Elevation IDU Refinement</p>
     </div>
     <div class="header-actions">
-      <span class="config-badge" id="config-label">Loading config&hellip;</span>
-      <button id="refresh-btn" onclick="loadStatus()">&#8635; Refresh</button>
+      <div class="config-pill" id="config-pill">
+        <span class="dot"></span>
+        <span id="config-text">Connecting to Cloud Run...</span>
+      </div>
+      <button class="btn" id="refresh-btn" onclick="loadAllStatus()">
+        &#8635; Refresh
+      </button>
     </div>
   </header>
 
-  <!-- Stat bar -->
-  <div class="stats">
-    <div class="stat">
-      <div class="stat-label">Running</div>
-      <div class="stat-val yellow" id="stat-running">&mdash;</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Succeeded</div>
-      <div class="stat-val green" id="stat-success">&mdash;</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Failed</div>
-      <div class="stat-val red" id="stat-failed">&mdash;</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Total (last 10)</div>
-      <div class="stat-val blue" id="stat-total">&mdash;</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Last Updated</div>
-      <div class="stat-val" style="font-size:1rem;" id="stat-time">&mdash;</div>
-    </div>
-  </div>
+  <div class="dashboard-grid">
 
-  <!-- Trigger form -->
-  <div class="section-label">&#9654; Trigger New Job</div>
-  <div class="trigger-card">
-    <p style="font-size:.84rem; color:#94a3b8;">
-      Launch a new Cloud Run Job execution. Env vars are passed as overrides to the existing job definition.
-    </p>
-    <div class="form-row">
-      <div class="field">
-        <label>Dataset</label>
-        <select id="f-dataset" onchange="onDatasetChange()">
-          <option value="datasets_JAX">JAX (datasets_JAX)</option>
-          <option value="datasets_NYC">NYC (datasets_NYC)</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Scene</label>
-        <select id="f-scene" onchange="onSceneSelectChange()">
-          <!-- Populated dynamically based on Dataset -->
-        </select>
-      </div>
-      <div class="field" id="f-scene-custom-wrap" style="display: none;">
-        <label>Custom Scene</label>
-        <input id="f-scene-custom" type="text" placeholder="e.g. JAX_999" />
-      </div>
-      <div class="field">
-        <label>Stage</label>
-        <select id="f-stage">
-          <option value="1">Stage 1 — Reconstruction</option>
-          <option value="2">Stage 2 — IDU Synthesis</option>
-          <option value="eval">Eval</option>
-        </select>
-      </div>
-      <button id="trigger-btn" onclick="triggerJob()">&#9654; Run Job</button>
-    </div>
-
-    <!-- Quick-select Scene Pills List -->
-    <div class="scene-meta-box">
-      <div class="scene-meta-header">
-        <div class="scene-meta-label">
-          <span>&#128194; Available Scenes in <span id="current-dataset-label" style="color:#93c5fd;">datasets_JAX</span></span>
-          <span class="scene-count-badge" id="scene-count-badge">8 scenes</span>
+    <!-- Section 1: Upload Studio (12-15 Images) -->
+    <div class="glass-card">
+      <div class="card-title-bar">
+        <div class="card-title">
+          <span>&#128248; Satellite Image Upload Studio</span>
+          <span class="badge" id="upload-count-badge">0 / 12-15 Recommended Images</span>
         </div>
-        <span style="font-size:.7rem; color: var(--muted);">Click any scene to select</span>
+        <span style="font-size: 0.75rem; color: var(--text-dim);">Direct streaming to Google Cloud Storage</span>
       </div>
-      <div class="scene-pills" id="scene-pills"></div>
+
+      <!-- Dropzone -->
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+        <input type="file" id="file-input" multiple accept="image/jpeg,image/png,image/jpg" onchange="handleFileSelect(event)" />
+        <div class="dropzone-icon">&#9729;</div>
+        <div class="dropzone-title">Drag &amp; drop 12&ndash;15 Satellite Images here</div>
+        <div class="dropzone-subtitle">or click to browse from your computer (JPG, PNG supported)</div>
+      </div>
+
+      <!-- Thumbnails Grid -->
+      <div class="preview-grid" id="preview-grid" style="display: none;"></div>
+
+      <!-- Upload Controls -->
+      <div class="upload-controls">
+        <div class="form-group">
+          <label>Scene Identifier</label>
+          <input type="text" id="scene-name-input" placeholder="e.g. CUSTOM_001 or DOWNTOWN_SATELLITE" value="CUSTOM_001" />
+        </div>
+        <div class="form-group">
+          <label>Target Dataset</label>
+          <select id="dataset-name-select">
+            <option value="datasets_custom" selected>datasets_custom (User Uploads)</option>
+            <option value="datasets_JAX">datasets_JAX (Jacksonville Benchmark)</option>
+            <option value="datasets_NYC">datasets_NYC (New York City Benchmark)</option>
+          </select>
+        </div>
+        <button class="btn btn-success" id="upload-btn" onclick="uploadImagesToGCS()" disabled>
+          &#8679; Upload to GCS Bucket
+        </button>
+        <button class="btn" onclick="clearSelectedFiles()" id="clear-btn" style="display:none;">
+          Clear
+        </button>
+      </div>
     </div>
 
-    <div id="trigger-msg"></div>
-  </div>
+    <!-- Section 2: 4-Step Pipeline Orchestrator -->
+    <div class="glass-card">
+      <div class="card-title-bar">
+        <div class="card-title">
+          <span>&#9881; 4-Step Pipeline Orchestrator (Option A: Auto-Resume)</span>
+          <span class="badge" id="pipeline-status-badge">Idle</span>
+        </div>
+        <span style="font-size: 0.75rem; color: var(--text-dim);">Guaranteed zero 1-hour Cloud Run timeout crashes</span>
+      </div>
 
-  <!-- Executions table -->
-  <div class="section-label">&#128203; Recent Executions</div>
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Execution</th>
-          <th>Status</th>
-          <th>Started</th>
-          <th>Duration</th>
-          <th>Tasks</th>
-        </tr>
-      </thead>
-      <tbody id="exec-tbody">
-        <tr id="empty-row">
-          <td colspan="5"><span class="spinner"></span>&nbsp; Loading executions&hellip;</td>
-        </tr>
-      </tbody>
-    </table>
+      <!-- 4-Stage Stepper -->
+      <div class="stepper-container">
+        <!-- Step 0 -->
+        <div class="step-card" id="step-0-card">
+          <div class="step-header">
+            <span class="step-num">STAGE 0</span>
+            <span class="step-state-badge badge-idle" id="step-0-state">Idle</span>
+          </div>
+          <div class="step-title">SfM (COLMAP)</div>
+          <div class="step-desc">Camera pose recovery &amp; 3D tie-point triangulation from uploaded images.</div>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="step-card" id="step-1-card">
+          <div class="step-header">
+            <span class="step-num">STAGE 1</span>
+            <span class="step-state-badge badge-idle" id="step-1-state">Idle</span>
+          </div>
+          <div class="step-title">Base Gaussian Splatting</div>
+          <div class="step-desc">Initial 30,000 iterations density growth &amp; spherical harmonics training.</div>
+        </div>
+
+        <!-- Step 2 -->
+        <div class="step-card" id="step-2-card">
+          <div class="step-header">
+            <span class="step-num">STAGE 2</span>
+            <span class="step-state-badge badge-idle" id="step-2-state">Idle</span>
+          </div>
+          <div class="step-title">IDU Refinement (60k)</div>
+          <div class="step-desc">6 curriculum elevation episodes (85&deg; &rarr; 35&deg;). Auto-chunked in 3 runs.</div>
+          <div class="sub-chunk-tags">
+            <span class="chunk-tag" id="chunk-tag-1">Chunk 1: 30k-50k</span>
+            <span class="chunk-tag" id="chunk-tag-2">Chunk 2: 50k-70k</span>
+            <span class="chunk-tag" id="chunk-tag-3">Chunk 3: 70k-90k</span>
+          </div>
+        </div>
+
+        <!-- Step 3 -->
+        <div class="step-card" id="step-3-card">
+          <div class="step-header">
+            <span class="step-num">STAGE 3</span>
+            <span class="step-state-badge badge-idle" id="step-3-state">Idle</span>
+          </div>
+          <div class="step-title">Export &amp; Orbit Video</div>
+          <div class="step-desc">Colored 3D PLY model fusion &amp; 360&deg; circular trajectory video rendering.</div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <button class="btn btn-primary" id="launch-pipeline-btn" onclick="startFullPipeline()">
+          &#9654; Launch Full 4-Step Pipeline (Option A)
+        </button>
+        <button class="btn" onclick="triggerStep(0)">Run Step 0 (SfM)</button>
+        <button class="btn" onclick="triggerStep(1)">Run Step 1 (Base GS)</button>
+        <button class="btn" onclick="triggerStep(2)">Run Step 2 (IDU)</button>
+        <button class="btn" onclick="triggerStep(3)">Run Step 3 (Export &amp; Render)</button>
+        <button class="btn btn-danger" id="cancel-pipeline-btn" onclick="cancelPipeline()" style="display: none; margin-left: auto;">
+          &#10006; Cancel Pipeline
+        </button>
+      </div>
+
+      <!-- Live Monitor Box -->
+      <div class="monitor-box" id="monitor-box" style="display: none;">
+        <div class="monitor-pulse"></div>
+        <div class="monitor-details">
+          <div class="monitor-title">
+            <span id="monitor-title-text">Pipeline Active</span>
+            <span class="mono" id="monitor-time" style="font-size: 0.75rem; color: var(--text-dim); margin-left: auto;">0s elapsed</span>
+          </div>
+          <div class="monitor-subtitle" id="monitor-detail-text">Waiting for execution response...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 3: Interactive Results & Media Viewer -->
+    <div class="glass-card">
+      <div class="card-title-bar">
+        <div class="card-title">
+          <span>&#127916; Reconstruction Results &amp; 3D Orbit Viewer</span>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <a class="btn" id="download-ply-btn" href="#" target="_blank" style="display: none;">
+            &#128190; Download Fused 3D PLY
+          </a>
+          <a class="btn" id="download-video-btn" href="#" target="_blank" style="display: none;">
+            &#127910; Download Orbit Video
+          </a>
+        </div>
+      </div>
+
+      <!-- Tabs Nav -->
+      <div class="tabs-nav">
+        <button class="tab-btn active" onclick="switchTab('orbit-video-tab')">&#127909; 360&deg; Orbit Flight Video</button>
+        <button class="tab-btn" onclick="switchTab('splat-viewer-tab')">&#129528; Interactive 3D Splat Viewer</button>
+        <button class="tab-btn" onclick="switchTab('checkpoints-tab')">&#128194; Checkpoint History</button>
+      </div>
+
+      <!-- Tab 1: Video -->
+      <div class="tab-content active" id="orbit-video-tab">
+        <div class="video-container">
+          <video id="orbit-video-player" controls autoplay loop playsinline>
+            <source id="video-source" src="" type="video/mp4" />
+            Your browser does not support HTML5 video.
+          </video>
+        </div>
+      </div>
+
+      <!-- Tab 2: 3D Splat Viewer -->
+      <div class="tab-content" id="splat-viewer-tab">
+        <div class="splat-viewer-box">
+          <div class="splat-canvas-placeholder" id="splat-placeholder">
+            <div style="font-size: 36px; margin-bottom: 12px;">&#127758;</div>
+            <div style="font-weight: 700; font-size: 1.1rem; margin-bottom: 6px;">3D Gaussian Splat Model Viewer</div>
+            <p style="font-size: 0.82rem; color: var(--text-dim); max-width: 480px; margin-bottom: 16px;">
+              View and navigate high-fidelity 3D Gaussian Splatting reconstructions rendered at iteration 90,000.
+            </p>
+            <button class="btn btn-primary" onclick="loadPLYViewer()">Load Scene PLY Model</button>
+          </div>
+          <iframe id="splat-iframe" style="width: 100%; height: 100%; border: none; display: none;" src="about:blank"></iframe>
+        </div>
+      </div>
+
+      <!-- Tab 3: Checkpoints -->
+      <div class="tab-content" id="checkpoints-tab">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Artifact</th>
+                <th>Iteration</th>
+                <th>Purpose</th>
+                <th>Location</th>
+              </tr>
+            </thead>
+            <tbody id="artifacts-tbody">
+              <tr>
+                <td class="mono">chkpnt30000.pth</td>
+                <td>30,000</td>
+                <td>Stage 1 Base GS Checkpoint</td>
+                <td class="mono">gs://stereo-images/checkpoints/&hellip;</td>
+              </tr>
+              <tr>
+                <td class="mono">chkpnt50000.pth</td>
+                <td>50,000</td>
+                <td>Stage 2 Chunk 1 Checkpoint (Ep 1-2)</td>
+                <td class="mono">gs://stereo-images/outputs/&hellip;</td>
+              </tr>
+              <tr>
+                <td class="mono">chkpnt70000.pth</td>
+                <td>70,000</td>
+                <td>Stage 2 Chunk 2 Checkpoint (Ep 3-4)</td>
+                <td class="mono">gs://stereo-images/outputs/&hellip;</td>
+              </tr>
+              <tr>
+                <td class="mono">chkpnt90000.pth</td>
+                <td>90,000</td>
+                <td>Stage 2 Final Checkpoint (Ep 5-6)</td>
+                <td class="mono">gs://stereo-images/outputs/&hellip;</td>
+              </tr>
+              <tr>
+                <td class="mono">fused_model.ply</td>
+                <td>90,000</td>
+                <td>Fused 3D Gaussian Splats PLY Point Cloud</td>
+                <td class="mono">gs://stereo-images/outputs/&hellip;</td>
+              </tr>
+              <tr>
+                <td class="mono">orbit_flight.mp4</td>
+                <td>90,000</td>
+                <td>360&deg; Orbit Camera Path Render</td>
+                <td class="mono">gs://stereo-images/outputs/&hellip;</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 4: Executions History -->
+    <div class="glass-card">
+      <div class="card-title-bar">
+        <div class="card-title">
+          <span>&#128203; Cloud Run Job Executions</span>
+        </div>
+        <span style="font-size: 0.75rem; color: var(--text-dim);" id="exec-count-label">Showing recent executions</span>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Execution</th>
+              <th>Status</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Tasks</th>
+            </tr>
+          </thead>
+          <tbody id="exec-tbody">
+            <tr>
+              <td colspan="5" style="text-align:center; color: var(--text-muted); padding: 24px;">Loading executions...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 
   <footer>
-    Skyfall-GS &middot; ECCV 2026 &nbsp;|&nbsp; Cloud Run Jobs &middot; RTX Pro 6000 Blackwell
+    Skyfall-GS &middot; ECCV 2026 &nbsp;|&nbsp; Cloud Run Jobs (Auto-Resume Option A) &middot; RTX Pro 6000 Ada
   </footer>
 </div>
 
 <div id="toast"></div>
 
 <script>
-  // ── Config ────────────────────────────────────────────────────────────────
-  async function loadConfig() {
-    try {
-      const r = await fetch('/api/config');
-      const d = await r.json();
-      document.getElementById('config-label').textContent =
-        `${d.project_id} / ${d.region} / ${d.job_name}`;
-    } catch (e) {
-      document.getElementById('config-label').textContent = 'Config unavailable';
+  let selectedFiles = [];
+  let pollTimer = null;
+  let pipelineActive = false;
+
+  // ── File Selection & Drag & Drop ───────────────────────────────────────────
+  const dropzone = document.getElementById('dropzone');
+  ['dragenter', 'dragover'].forEach(name => {
+    dropzone.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+  });
+
+  ['dragleave', 'drop'].forEach(name => {
+    dropzone.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+    });
+  });
+
+  dropzone.addEventListener('drop', (e) => {
+    if (e.dataTransfer && e.dataTransfer.files) {
+      appendFiles(e.dataTransfer.files);
+    }
+  });
+
+  function handleFileSelect(e) {
+    if (e.target.files) {
+      appendFiles(e.target.files);
     }
   }
 
-  // ── Status ────────────────────────────────────────────────────────────────
-  async function loadStatus() {
-    const btn = document.getElementById('refresh-btn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>';
-
-    try {
-      const r   = await fetch('/api/status');
-      const data = await r.json();
-      const execs = data.executions || [];
-
-      let running = 0, succeeded = 0, failed = 0;
-
-      const tbody = document.getElementById('exec-tbody');
-      tbody.innerHTML = '';
-
-      if (execs.length === 0) {
-        tbody.innerHTML = '<tr id="empty-row"><td colspan="5" style="text-align:center;color:var(--muted);padding:32px;">No executions found</td></tr>';
-      } else {
-        execs.forEach(ex => {
-          const conds = ex.conditions || [];
-          const ready = conds.find(c => c.type === 'Ready');
-          const state = ready ? ready.state : 'UNKNOWN';
-
-          if (state === 'True')         succeeded++;
-          else if (state === 'False')   failed++;
-          else                           running++;
-
-          const name     = ex.name?.split('/').pop() || '—';
-          const started  = ex.startTime ? new Date(ex.startTime).toLocaleString() : '—';
-          const duration = ex.startTime && ex.completionTime
-            ? fmtDuration(ex.startTime, ex.completionTime) : (running ? '⏳ running' : '—');
-
-          const tasks    = `${ex.succeededCount || 0}✓  ${ex.failedCount || 0}✗`;
-
-          const badgeClass = state === 'True' ? 'badge-success'
-                           : state === 'False' ? 'badge-failed'
-                           : 'badge-running';
-          const badgeLabel = state === 'True' ? '✓ Succeeded'
-                           : state === 'False' ? '✗ Failed'
-                           : '⏳ Running';
-
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="mono">${name}</td>
-            <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
-            <td>${started}</td>
-            <td>${duration}</td>
-            <td>${tasks}</td>
-          `;
-          tbody.appendChild(tr);
-        });
+  function appendFiles(fileList) {
+    for (let f of fileList) {
+      if (f.type.startsWith('image/') || f.name.match(/\.(jpg|jpeg|png)$/i)) {
+        selectedFiles.push(f);
       }
-
-      document.getElementById('stat-running').textContent = running;
-      document.getElementById('stat-success').textContent = succeeded;
-      document.getElementById('stat-failed').textContent  = failed;
-      document.getElementById('stat-total').textContent   = execs.length;
-      document.getElementById('stat-time').textContent    = new Date().toLocaleTimeString();
-
-    } catch (e) {
-      showToast('Failed to load executions: ' + e.message);
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = '&#8635; Refresh';
     }
+    renderPreviews();
   }
 
-  // ── Datasets & Scenes Catalog ───────────────────────────────────────────
-  const DATASETS_MAP = {
-    datasets_JAX: {
-      label: 'datasets_JAX',
-      defaultScene: 'JAX_068',
-      scenes: [
-        'JAX_068',
-        'JAX_004',
-        'JAX_164',
-        'JAX_168',
-        'JAX_175',
-        'JAX_214',
-        'JAX_260',
-        'JAX_264'
-      ]
-    },
-    datasets_NYC: {
-      label: 'datasets_NYC',
-      defaultScene: 'NYC_004',
-      scenes: [
-        'NYC_004',
-        'NYC_010',
-        'NYC_219',
-        'NYC_336'
-      ]
-    }
-  };
+  function renderPreviews() {
+    const grid = document.getElementById('preview-grid');
+    const badge = document.getElementById('upload-count-badge');
+    const uploadBtn = document.getElementById('upload-btn');
+    const clearBtn = document.getElementById('clear-btn');
 
-  function updateSceneOptions(datasetKey, selectedScene = null) {
-    const ds = DATASETS_MAP[datasetKey] || DATASETS_MAP.datasets_JAX;
-    const sceneSelect = document.getElementById('f-scene');
-    const pillsContainer = document.getElementById('scene-pills');
-    const labelSpan = document.getElementById('current-dataset-label');
-    const countBadge = document.getElementById('scene-count-badge');
-    const customWrap = document.getElementById('f-scene-custom-wrap');
+    grid.innerHTML = '';
+    badge.textContent = `${selectedFiles.length} / 12-15 Recommended Images`;
 
-    labelSpan.textContent = ds.label;
-    countBadge.textContent = `${ds.scenes.length} scenes`;
+    if (selectedFiles.length > 0) {
+      grid.style.display = 'grid';
+      uploadBtn.disabled = false;
+      clearBtn.style.display = 'inline-flex';
+      uploadBtn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images to GCS`;
 
-    // Populate dropdown
-    sceneSelect.innerHTML = '';
-    ds.scenes.forEach(scene => {
-      const opt = document.createElement('option');
-      opt.value = scene;
-      opt.textContent = scene;
-      sceneSelect.appendChild(opt);
-    });
+      selectedFiles.forEach((file, index) => {
+        const item = document.createElement('div');
+        item.className = 'preview-item';
 
-    const customOpt = document.createElement('option');
-    customOpt.value = '__custom__';
-    customOpt.textContent = '✏️ Custom Scene...';
-    sceneSelect.appendChild(customOpt);
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
 
-    const active = selectedScene && (ds.scenes.includes(selectedScene) || selectedScene === '__custom__')
-      ? selectedScene
-      : ds.defaultScene;
+        const rm = document.createElement('button');
+        rm.className = 'remove-btn';
+        rm.innerHTML = '&times;';
+        rm.onclick = (e) => {
+          e.stopPropagation();
+          selectedFiles.splice(index, 1);
+          renderPreviews();
+        };
 
-    sceneSelect.value = active;
-    if (active === '__custom__') {
-      customWrap.style.display = 'flex';
+        const cap = document.createElement('div');
+        cap.className = 'caption';
+        cap.textContent = file.name;
+
+        item.appendChild(img);
+        item.appendChild(rm);
+        item.appendChild(cap);
+        grid.appendChild(item);
+      });
     } else {
-      customWrap.style.display = 'none';
+      grid.style.display = 'none';
+      uploadBtn.disabled = true;
+      clearBtn.style.display = 'none';
+      uploadBtn.innerHTML = '&#8679; Upload to GCS Bucket';
+    }
+  }
+
+  function clearSelectedFiles() {
+    selectedFiles = [];
+    renderPreviews();
+  }
+
+  // ── GCS Upload ─────────────────────────────────────────────────────────────
+  async function uploadImagesToGCS() {
+    const sceneInput = document.getElementById('scene-name-input').value.trim();
+    const datasetSelect = document.getElementById('dataset-name-select').value;
+    const btn = document.getElementById('upload-btn');
+
+    if (!sceneInput) {
+      showToast('Please enter a scene name', 'error');
+      return;
+    }
+    if (selectedFiles.length === 0) {
+      showToast('No images selected', 'error');
+      return;
     }
 
-    // Populate pills
-    pillsContainer.innerHTML = '';
-    ds.scenes.forEach(scene => {
-      const pill = document.createElement('div');
-      pill.className = 'scene-pill' + (scene === active ? ' active' : '');
-      pill.textContent = scene;
-      pill.onclick = () => selectScene(scene);
-      pillsContainer.appendChild(pill);
-    });
-  }
-
-  function selectScene(scene) {
-    const sceneSelect = document.getElementById('f-scene');
-    sceneSelect.value = scene;
-    onSceneSelectChange();
-  }
-
-  function onDatasetChange() {
-    const dsKey = document.getElementById('f-dataset').value;
-    updateSceneOptions(dsKey);
-  }
-
-  function onSceneSelectChange() {
-    const sceneVal = document.getElementById('f-scene').value;
-    const customWrap = document.getElementById('f-scene-custom-wrap');
-    if (sceneVal === '__custom__') {
-      customWrap.style.display = 'flex';
-      document.getElementById('f-scene-custom').focus();
-    } else {
-      customWrap.style.display = 'none';
-    }
-
-    // Highlight active pill
-    document.querySelectorAll('.scene-pill').forEach(pill => {
-      if (pill.textContent === sceneVal) {
-        pill.classList.add('active');
-      } else {
-        pill.classList.remove('active');
-      }
-    });
-  }
-
-  // ── Trigger ───────────────────────────────────────────────────────────────
-  async function triggerJob() {
-    const btn  = document.getElementById('trigger-btn');
-    const msg  = document.getElementById('trigger-msg');
     btn.disabled = true;
-    btn.textContent = 'Submitting…';
-    msg.className = '';
-    msg.style.display = 'none';
+    btn.innerHTML = 'Uploading to GCS...';
 
-    const sceneSelect = document.getElementById('f-scene');
-    let sceneName = sceneSelect.value;
-    if (sceneName === '__custom__') {
-      sceneName = document.getElementById('f-scene-custom').value.trim();
-      if (!sceneName) {
-        msg.className = 'error';
-        msg.textContent = '✗ Please enter a custom scene name';
+    const formData = new FormData();
+    formData.append('scene', sceneInput);
+    formData.append('dataset', datasetSelect);
+    for (let f of selectedFiles) {
+      formData.append('files', f);
+    }
+
+    try {
+      const resp = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'Upload failed');
+
+      showToast(`✓ Uploaded ${data.uploaded_count} images to ${data.gcs_uri}`, 'success');
+      btn.innerHTML = '✓ Upload Complete';
+      setTimeout(() => {
         btn.disabled = false;
-        btn.textContent = '▶ Run Job';
-        return;
-      }
+        btn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images to GCS`;
+      }, 3000);
+    } catch (e) {
+      showToast('Upload error: ' + e.message, 'error');
+      btn.disabled = false;
+      btn.innerHTML = `&#8679; Retry Upload`;
+    }
+  }
+
+  // ── Pipeline Orchestrator ───────────────────────────────────────────────────
+  async function startFullPipeline() {
+    const scene = document.getElementById('scene-name-input').value.trim();
+    const dataset = document.getElementById('dataset-name-select').value;
+    if (!scene) {
+      showToast('Please specify a scene name', 'error');
+      return;
     }
 
     const payload = {
-      scene:   sceneName,
-      stage:   document.getElementById('f-stage').value,
-      dataset: document.getElementById('f-dataset').value,
+      scene: scene,
+      dataset: dataset,
+      steps: [0, 1, 2, 3],
+      episodes_per_run: 2,
+      total_episodes: 6
     };
 
     try {
-      const r = await fetch('/api/trigger', {
+      const resp = await fetch('/api/pipeline/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
-      if (!r.ok) {
-        const err = await r.json();
-        throw new Error(err.detail || r.statusText);
-      }
-      const d = await r.json();
-      msg.className = 'success';
-      msg.textContent = `✓ Job triggered: ${d.name?.split('/').pop() || 'submitted'} (${sceneName})`;
-      setTimeout(() => loadStatus(), 2000);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || 'Pipeline start failed');
+
+      showToast(`✓ 4-Step Pipeline initiated for ${scene}`, 'success');
+      pipelineActive = true;
+      document.getElementById('launch-pipeline-btn').disabled = true;
+      document.getElementById('cancel-pipeline-btn').style.display = 'inline-flex';
+      pollPipelineStatus();
     } catch (e) {
-      msg.className = 'error';
-      msg.textContent = '✗ Error: ' + e.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = '▶ Run Job';
+      showToast('Error: ' + e.message, 'error');
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
-  function fmtDuration(start, end) {
-    const ms = new Date(end) - new Date(start);
-    const h  = Math.floor(ms / 3600000);
-    const m  = Math.floor((ms % 3600000) / 60000);
-    const s  = Math.floor((ms % 60000) / 1000);
-    return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`;
+  async function triggerStep(stepNum) {
+    const scene = document.getElementById('scene-name-input').value.trim();
+    const dataset = document.getElementById('dataset-name-select').value;
+    if (!scene) {
+      showToast('Please specify a scene name', 'error');
+      return;
+    }
+
+    const payload = {
+      scene: scene,
+      stage: stepNum === 3 ? "3" : String(stepNum),
+      dataset: dataset
+    };
+
+    try {
+      const resp = await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.detail || 'Step trigger failed');
+
+      showToast(`✓ Step ${stepNum} triggered for ${scene}`, 'success');
+      loadAllStatus();
+    } catch (e) {
+      showToast('Error: ' + e.message, 'error');
+    }
   }
 
-  function showToast(msg) {
+  async function cancelPipeline() {
+    const scene = document.getElementById('scene-name-input').value.trim();
+    try {
+      await fetch(`/api/pipeline/cancel/${scene}`, { method: 'POST' });
+      showToast('Cancellation requested', 'info');
+    } catch (e) {
+      showToast('Error cancelling: ' + e.message, 'error');
+    }
+  }
+
+  async function pollPipelineStatus() {
+    const scene = document.getElementById('scene-name-input').value.trim();
+    if (!scene) return;
+
+    try {
+      const resp = await fetch(`/api/pipeline/status/${scene}`);
+      const data = await resp.json();
+
+      updateStepperUI(data);
+
+      if (data.status === 'running' || data.status === 'queued') {
+        setTimeout(pollPipelineStatus, 8000);
+      } else {
+        pipelineActive = false;
+        document.getElementById('launch-pipeline-btn').disabled = false;
+        document.getElementById('cancel-pipeline-btn').style.display = 'none';
+        if (data.status === 'completed') {
+          showToast('🎉 All 4 pipeline stages finished successfully!', 'success');
+          loadMediaOutputs(scene);
+        }
+      }
+    } catch (e) {
+      console.warn('Pipeline poll error:', e);
+      setTimeout(pollPipelineStatus, 10000);
+    }
+  }
+
+  function updateStepperUI(data) {
+    const badge = document.getElementById('pipeline-status-badge');
+    const monitorBox = document.getElementById('monitor-box');
+    const monTitle = document.getElementById('monitor-title-text');
+    const monSub = document.getElementById('monitor-detail-text');
+    const monTime = document.getElementById('monitor-time');
+
+    badge.textContent = (data.status || 'idle').toUpperCase();
+
+    if (data.status === 'running' || data.status === 'queued') {
+      monitorBox.style.display = 'flex';
+      monTitle.textContent = data.step_name || 'Running Pipeline...';
+      monSub.textContent = data.detail || '';
+      monTime.textContent = (data.elapsed_seconds || 0) + 's elapsed';
+    } else if (data.status === 'completed') {
+      monitorBox.style.display = 'flex';
+      monTitle.textContent = '🎉 Pipeline Completed Successfully';
+      monSub.textContent = data.detail || 'All iterations and video renders generated.';
+    } else {
+      monitorBox.style.display = 'none';
+    }
+
+    // Step cards
+    const stepCards = [0, 1, 2, 3];
+    stepCards.forEach(s => {
+      const card = document.getElementById(`step-${s}-card`);
+      const stateBadge = document.getElementById(`step-${s}-state`);
+      card.classList.remove('active', 'completed');
+      stateBadge.className = 'step-state-badge badge-idle';
+      stateBadge.textContent = 'Idle';
+
+      if (data.current_step === s && data.status === 'running') {
+        card.classList.add('active');
+        stateBadge.className = 'step-state-badge badge-running';
+        stateBadge.textContent = 'Running';
+      } else if (data.current_step !== undefined && data.current_step > s) {
+        card.classList.add('completed');
+        stateBadge.className = 'step-state-badge badge-done';
+        stateBadge.textContent = 'Done';
+      } else if (data.status === 'completed') {
+        card.classList.add('completed');
+        stateBadge.className = 'step-state-badge badge-done';
+        stateBadge.textContent = 'Done';
+      }
+    });
+
+    // Chunk tags
+    if (data.current_step === 2 && data.chunk_info) {
+      if (data.chunk_info.includes('Chunk 1')) document.getElementById('chunk-tag-1').classList.add('done');
+      if (data.chunk_info.includes('Chunk 2')) document.getElementById('chunk-tag-2').classList.add('done');
+      if (data.chunk_info.includes('Chunk 3')) document.getElementById('chunk-tag-3').classList.add('done');
+    }
+  }
+
+  // ── Media & Outputs ────────────────────────────────────────────────────────
+  function loadMediaOutputs(scene) {
+    const video = document.getElementById('orbit-video-player');
+    const vsource = document.getElementById('video-source');
+    const dlVideo = document.getElementById('download-video-btn');
+    const dlPly = document.getElementById('download-ply-btn');
+
+    const videoUrl = `/api/outputs/${scene}/video`;
+    const plyUrl = `/api/outputs/${scene}/ply`;
+
+    vsource.src = videoUrl;
+    video.load();
+    dlVideo.href = videoUrl;
+    dlVideo.style.display = 'inline-flex';
+
+    dlPly.href = plyUrl;
+    dlPly.style.display = 'inline-flex';
+  }
+
+  function switchTab(tabId) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById(tabId).classList.add('active');
+    event.target.classList.add('active');
+  }
+
+  function loadPLYViewer() {
+    const scene = document.getElementById('scene-name-input').value.trim();
+    const iframe = document.getElementById('splat-iframe');
+    const placeholder = document.getElementById('splat-placeholder');
+
+    placeholder.style.display = 'none';
+    iframe.style.display = 'block';
+    // Load WebGL viewer with the scene's PLY model
+    iframe.src = `https://antimatter15.com/splat/?url=${encodeURIComponent(window.location.origin + '/api/outputs/' + scene + '/ply')}`;
+  }
+
+  // ── Cloud Run Executions Table ─────────────────────────────────────────────
+  async function loadAllStatus() {
+    const tbody = document.getElementById('exec-tbody');
+    try {
+      const resp = await fetch('/api/status');
+      const data = await resp.json();
+      const execs = data.executions || [];
+
+      if (execs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px;">No executions found</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = '';
+      execs.forEach(ex => {
+        const conds = ex.conditions || [];
+        const ready = conds.find(c => c.type === 'Ready');
+        const state = ready ? ready.state : 'UNKNOWN';
+
+        const name = ex.name?.split('/').pop() || '—';
+        const started = ex.startTime ? new Date(ex.startTime).toLocaleTimeString() : '—';
+        const tasks = `${ex.succeededCount || 0}✓  ${ex.failedCount || 0}✗`;
+
+        const badgeClass = state === 'True' ? 'badge-done' : state === 'False' ? 'badge-failed' : 'badge-running';
+        const badgeLabel = state === 'True' ? '✓ Succeeded' : state === 'False' ? '✗ Failed' : '⏳ Running';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${name}</td>
+          <td><span class="step-state-badge ${badgeClass}">${badgeLabel}</span></td>
+          <td>${started}</td>
+          <td>${fmtDuration(ex.startTime, ex.completionTime)}</td>
+          <td>${tasks}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      console.warn('Status error:', e);
+    }
+  }
+
+  function fmtDuration(start, end) {
+    if (!start) return '—';
+    const s = new Date(start);
+    const e = end ? new Date(end) : new Date();
+    const diff = Math.floor((e - s) / 1000);
+    const m = Math.floor(diff / 60);
+    const sec = diff % 60;
+    return `${m}m ${sec}s`;
+  }
+
+  // ── Config & Toast ─────────────────────────────────────────────────────────
+  async function loadConfig() {
+    try {
+      const resp = await fetch('/api/config');
+      const cfg = await resp.json();
+      document.getElementById('config-text').textContent =
+        `${cfg.project_id || 'GCP'} · ${cfg.region} · gs://${cfg.gcs_bucket}`;
+    } catch (e) {
+      document.getElementById('config-text').textContent = 'Cloud Run Connected';
+    }
+  }
+
+  function showToast(msg, type = 'info') {
     const t = document.getElementById('toast');
     t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 3500);
+    t.className = type + ' show';
+    setTimeout(() => { t.className = ''; }, 3500);
   }
 
-  // ── Init & Auto-refresh ───────────────────────────────────────────────────
-  updateSceneOptions('datasets_JAX');
+  // Init
   loadConfig();
-  loadStatus();
-  setInterval(loadStatus, 30000);
+  loadAllStatus();
+  setInterval(loadAllStatus, 30000);
 </script>
+
 </body>
 </html>

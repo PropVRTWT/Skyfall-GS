@@ -237,14 +237,19 @@ class OptimizationParams(ParamGroup):
         self.datasets_type: str = "jax_v1"
         self.idu_params: Dict[str, IDUParams] = {
             "jax_v1": IDUParams(
-                elevation_list=[85., 75., 65., 55., 45.],
-                radius_list=[300., 275., 275., 250., 250.],
+                elevation_list=[85., 75., 65., 55., 45., 35.],
+                radius_list=[300., 275., 275., 250., 250., 225.],
                 fov=60.0
             ),
             "nyc_v1": IDUParams(
                 elevation_list=[85., 75., 65., 55., 45., 25.],
-                radius_list=[600., 600., 600., 600., 600.],
+                radius_list=[600., 600., 600., 600., 600., 550.],
                 fov=20.0
+            ),
+            "custom_v1": IDUParams(
+                elevation_list=[85., 75., 65., 55., 45., 35.],
+                radius_list=[300., 275., 275., 250., 250., 225.],
+                fov=60.0
             )
         }
         

@@ -19,6 +19,8 @@ RUN pip install --no-cache-dir \
     uvicorn[standard]==0.30.6 \
     google-cloud-run==0.10.13 \
     google-cloud-logging==3.11.3 \
+    google-cloud-storage==2.18.2 \
+    python-multipart==0.0.12 \
     google-auth==2.35.0 \
     httpx==0.27.2 \
     jinja2==3.1.4

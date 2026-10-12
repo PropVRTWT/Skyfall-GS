@@ -999,8 +999,15 @@ def training_idu(dataset, opt, pipe, init_checkpoint_path):
             print(f"[IDU Resume] Skipping {completed_episodes} already-completed episode(s). Running remaining {len(curriculum_pairs) - completed_episodes} episode(s).")
             curriculum_pairs = curriculum_pairs[completed_episodes:]
 
+        max_episodes_per_run = int(os.environ.get("MAX_EPISODES_PER_RUN", "2"))
+        episodes_run_in_this_job = 0
+        total_total_episodes = len(list(zip(opt.idu_radius_list, opt.idu_elevation_list)))
         for radius, elevation in curriculum_pairs:
-            print(f"Training IDU episode with elevation {elevation} and radius {radius}")
+            if max_episodes_per_run > 0 and episodes_run_in_this_job >= max_episodes_per_run:
+                print(f"[IDU Chunk Limit] Completed {episodes_run_in_this_job} episode(s) in this execution (Total completed: {completed_episodes + episodes_run_in_this_job}/{total_total_episodes}). Exiting cleanly for next chunk resume.", flush=True)
+                break
+            episodes_run_in_this_job += 1
+            print(f"Training IDU episode with elevation {elevation} and radius {radius} ({completed_episodes + episodes_run_in_this_job}/{total_total_episodes})")
             print(f"# of IDU targets: {len(targets)}")
             start_checkpoint_path = training_idu_episode(
                 dataset, opt, pipe, 
@@ -1009,6 +1016,8 @@ def training_idu(dataset, opt, pipe, init_checkpoint_path):
                 idu_num_cams=opt.idu_num_cams,
                 idu_num_samples_per_view=opt.idu_num_samples_per_view
             )
+        if completed_episodes + episodes_run_in_this_job >= total_total_episodes:
+            print(f"[IDU Complete] SUCCESS: All {total_total_episodes} curriculum episodes have completed!", flush=True)
     else:
         print("===== Disable IDU curriculum learning =====")
         assert opt.idu_densify_until_iter < opt.idu_episode_iterations, "IDU densify until iter must be less than episode iterations"
