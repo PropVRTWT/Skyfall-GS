@@ -36,40 +36,51 @@ def convert(sparse_dir, output_dir, images_folder="images", test_holdout=8):
         extrinsics = read_extrinsics_text(os.path.join(sparse_dir, "images.txt"))
         intrinsics = read_intrinsics_text(os.path.join(sparse_dir, "cameras.txt"))
         
-    # 2. Read point cloud
+    # 2. Read point cloud and export points3D.ply & points3D.txt
     ply_path = os.path.join(output_dir, "points3D.ply")
     txt_path = os.path.join(output_dir, "points3D.txt")
     
     xyz, rgb = None, None
-    try:
-        bin_pts = os.path.join(sparse_dir, "points3D.bin")
-        if os.path.isfile(bin_pts):
-            pts_dict = read_points3D_binary(bin_pts)
-            xyz = np.array([p.xyz for p in pts_dict.values()])
-            rgb = np.array([p.rgb for p in pts_dict.values()])
-            # Export points3D.txt for loaders requiring txt
-            with open(txt_path, "w") as f:
-                f.write(f"# Number of points: {len(pts_dict)}\n")
-                for pid, p in pts_dict.items():
-                    tracks_str = " ".join(f"{img_id} {p2d_idx}" for img_id, p2d_idx in zip(p.image_ids, p.point2D_idxs))
-                    f.write(f"{pid} {p.xyz[0]} {p.xyz[1]} {p.xyz[2]} {p.rgb[0]} {p.rgb[1]} {p.rgb[2]} {p.error} {tracks_str}\n")
-    except Exception as e:
-        print(f"[colmap2nerf] Binary point cloud notice: {e}")
-        
-    if xyz is None:
+    bin_pts = os.path.join(sparse_dir, "points3D.bin")
+    txt_pts = os.path.join(sparse_dir, "points3D.txt")
+
+    if os.path.isfile(bin_pts):
         try:
-            txt_pts = os.path.join(sparse_dir, "points3D.txt")
-            if os.path.isfile(txt_pts):
-                xyz, rgb, _ = read_points3D_text(txt_pts)
-                if not os.path.isfile(txt_path):
-                    import shutil
-                    shutil.copy2(txt_pts, txt_path)
+            pts_res = read_points3D_binary(bin_pts)
+            if isinstance(pts_res, tuple) and len(pts_res) >= 2:
+                xyz, rgb = pts_res[0], pts_res[1]
+            elif isinstance(pts_res, dict):
+                xyz = np.array([p.xyz for p in pts_res.values()])
+                rgb = np.array([p.rgb for p in pts_res.values()])
+            print(f"[colmap2nerf] Successfully parsed binary point cloud with {len(xyz)} points")
+        except Exception as e:
+            print(f"[colmap2nerf] Binary point cloud notice: {e}")
+        
+    if xyz is None and os.path.isfile(txt_pts):
+        try:
+            pts_res = read_points3D_text(txt_pts)
+            if isinstance(pts_res, tuple) and len(pts_res) >= 2:
+                xyz, rgb = pts_res[0], pts_res[1]
+            elif isinstance(pts_res, dict):
+                xyz = np.array([p.xyz for p in pts_res.values()])
+                rgb = np.array([p.rgb for p in pts_res.values()])
+            print(f"[colmap2nerf] Successfully parsed text point cloud with {len(xyz)} points")
         except Exception as e:
             print(f"[colmap2nerf] Text point cloud notice: {e}")
             
     if xyz is not None and rgb is not None:
         storePly(ply_path, xyz, rgb)
         print(f"[colmap2nerf] Saved point cloud with {len(xyz)} points to {ply_path}")
+        
+        # Save points3D.txt if not already present
+        if not os.path.isfile(txt_path):
+            with open(txt_path, "w") as f:
+                f.write(f"# Number of points: {len(xyz)}\n")
+                for pid in range(len(xyz)):
+                    f.write(f"{pid} {xyz[pid][0]:.6f} {xyz[pid][1]:.6f} {xyz[pid][2]:.6f} {int(rgb[pid][0])} {int(rgb[pid][1])} {int(rgb[pid][2])} 0.0\n")
+            print(f"[colmap2nerf] Saved points3D.txt with {len(xyz)} points to {txt_path}")
+    else:
+        print("[colmap2nerf] Warning: No points3D found in sparse reconstruction!")
         
     # 3. Build frames for transforms_train.json & transforms_test.json
     frames_train = []

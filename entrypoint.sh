@@ -148,8 +148,29 @@ if [ "$STAGE" = "0" ] || [ "$STAGE" = "colmap" ] || [ "$STAGE" = "sfm" ]; then
   echo "[INFO] Running COLMAP feature extraction & bundle adjustment..."
   python3 convert.py -s "$WORK_DIR" --no_gpu 0 || python3 convert.py -s "$WORK_DIR" --no_gpu
 
+  # Convert COLMAP binary model to TXT & PLY format as well
+  if [ -d "$WORK_DIR/sparse/0" ]; then
+    echo "[INFO] Converting COLMAP binary model to TXT and PLY format..."
+    colmap model_converter \
+      --input_path "$WORK_DIR/sparse/0" \
+      --output_path "$WORK_DIR/sparse/0" \
+      --output_type TXT 2>/dev/null || true
+    colmap model_converter \
+      --input_path "$WORK_DIR/sparse/0" \
+      --output_path "$WORK_DIR/points3D.ply" \
+      --output_type PLY 2>/dev/null || true
+  fi
+
   echo "[INFO] Converting COLMAP reconstruction to Skyfall-GS format..."
   python3 scripts/colmap2nerf.py --sparse_dir "$WORK_DIR/sparse/0" --output_dir "$WORK_DIR"
+
+  # Ensure points3D.txt and points3D.ply exist in WORK_DIR
+  if [ ! -f "$WORK_DIR/points3D.txt" ] && [ -f "$WORK_DIR/sparse/0/points3D.txt" ]; then
+    cp "$WORK_DIR/sparse/0/points3D.txt" "$WORK_DIR/points3D.txt"
+  fi
+  if [ ! -f "$WORK_DIR/points3D.ply" ] && [ -f "$WORK_DIR/sparse/0/points3D.ply" ]; then
+    cp "$WORK_DIR/sparse/0/points3D.ply" "$WORK_DIR/points3D.ply"
+  fi
 
   echo "[INFO] Syncing camera poses and sparse points to GCS: $TARGET_SCENE_DIR"
   mkdir -p "$TARGET_SCENE_DIR/images" "$TARGET_SCENE_DIR/sparse/0"
@@ -158,10 +179,17 @@ if [ "$STAGE" = "0" ] || [ "$STAGE" = "colmap" ] || [ "$STAGE" = "sfm" ]; then
   cp "$WORK_DIR"/transforms*.json "$TARGET_SCENE_DIR/" 2>/dev/null || true
   cp "$WORK_DIR"/points3D.* "$TARGET_SCENE_DIR/" 2>/dev/null || true
 
-  echo "[INFO] Stage 0 complete! Generated transforms_train.json and points3D.ply in GCS."
+  echo "[INFO] Stage 0 complete! Generated transforms_train.json, points3D.txt, and points3D.ply in GCS: $TARGET_SCENE_DIR"
+
+  if [ "${AUTO_NEXT:-true}" = "true" ] || [ "${AUTO_STAGE_1:-true}" = "true" ] || [ "$STAGE" = "0_1" ] || [ "$STAGE" = "all" ]; then
+    echo "[INFO] Auto-chaining enabled: Automatically proceeding to Stage 1 (Reconstruction) in the same job execution!"
+    STAGE="1"
+    SCENE_DIR="$TARGET_SCENE_DIR"
+  fi
+fi
 
 # ── Stage 1: Reconstruction ───────────────────────────────────────────────────
-elif [ "$STAGE" = "1" ]; then
+if [ "$STAGE" = "1" ]; then
   echo "[INFO] Starting Stage 1 — Reconstruction"
 
   python train.py \
