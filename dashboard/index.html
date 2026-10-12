@@ -748,8 +748,11 @@
             <option value="datasets_NYC">datasets_NYC (New York City Benchmark)</option>
           </select>
         </div>
+        <button class="btn btn-primary" id="upload-run-btn" onclick="uploadAndStartPipeline()" disabled>
+          &#128640; Upload &amp; Auto-Run Pipeline
+        </button>
         <button class="btn btn-success" id="upload-btn" onclick="uploadImagesToGCS()" disabled>
-          &#8679; Upload to GCS Bucket
+          &#8679; Upload Images Only
         </button>
         <button class="btn" onclick="clearSelectedFiles()" id="clear-btn" style="display:none;">
           Clear
@@ -1029,6 +1032,7 @@
     const grid = document.getElementById('preview-grid');
     const badge = document.getElementById('upload-count-badge');
     const uploadBtn = document.getElementById('upload-btn');
+    const uploadRunBtn = document.getElementById('upload-run-btn');
     const clearBtn = document.getElementById('clear-btn');
 
     grid.innerHTML = '';
@@ -1037,8 +1041,9 @@
     if (selectedFiles.length > 0) {
       grid.style.display = 'grid';
       uploadBtn.disabled = false;
+      if (uploadRunBtn) uploadRunBtn.disabled = false;
       clearBtn.style.display = 'inline-flex';
-      uploadBtn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images to GCS`;
+      uploadBtn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images Only`;
 
       selectedFiles.forEach((file, index) => {
         const item = document.createElement('div');
@@ -1068,8 +1073,9 @@
     } else {
       grid.style.display = 'none';
       uploadBtn.disabled = true;
+      if (uploadRunBtn) uploadRunBtn.disabled = true;
       clearBtn.style.display = 'none';
-      uploadBtn.innerHTML = '&#8679; Upload to GCS Bucket';
+      uploadBtn.innerHTML = '&#8679; Upload Images Only';
     }
   }
 
@@ -1078,11 +1084,16 @@
     renderPreviews();
   }
 
-  // ── GCS Upload ─────────────────────────────────────────────────────────────
-  async function uploadImagesToGCS() {
+  // ── GCS Upload & Auto-Pipeline ─────────────────────────────────────────────
+  async function uploadAndStartPipeline() {
+    await uploadImagesToGCS(true);
+  }
+
+  async function uploadImagesToGCS(autoStartPipeline = false) {
     const sceneInput = document.getElementById('scene-name-input').value.trim();
     const datasetSelect = document.getElementById('dataset-name-select').value;
     const btn = document.getElementById('upload-btn');
+    const runBtn = document.getElementById('upload-run-btn');
 
     if (!sceneInput) {
       showToast('Please enter a scene name', 'error');
@@ -1094,11 +1105,14 @@
     }
 
     btn.disabled = true;
-    btn.innerHTML = 'Uploading to GCS...';
+    if (runBtn) runBtn.disabled = true;
+    const activeBtn = autoStartPipeline ? runBtn : btn;
+    activeBtn.innerHTML = 'Uploading to GCS...';
 
     const formData = new FormData();
     formData.append('scene', sceneInput);
     formData.append('dataset', datasetSelect);
+    formData.append('auto_start', autoStartPipeline ? 'true' : 'false');
     for (let f of selectedFiles) {
       formData.append('files', f);
     }
@@ -1111,16 +1125,28 @@
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || 'Upload failed');
 
-      showToast(`✓ Uploaded ${data.uploaded_count} images to ${data.gcs_uri}`, 'success');
-      btn.innerHTML = '✓ Upload Complete';
+      if (data.pipeline_started) {
+        showToast(`✓ Uploaded ${data.uploaded_count} images & Pipeline auto-launched!`, 'success');
+        pipelineActive = true;
+        document.getElementById('launch-pipeline-btn').disabled = true;
+        document.getElementById('cancel-pipeline-btn').style.display = 'inline-flex';
+        pollPipelineStatus();
+      } else {
+        showToast(`✓ Uploaded ${data.uploaded_count} images to ${data.gcs_uri}`, 'success');
+      }
+
+      activeBtn.innerHTML = '✓ Complete';
       setTimeout(() => {
         btn.disabled = false;
-        btn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images to GCS`;
+        if (runBtn) runBtn.disabled = false;
+        btn.innerHTML = `&#8679; Upload ${selectedFiles.length} Images Only`;
+        if (runBtn) runBtn.innerHTML = `&#128640; Upload &amp; Auto-Run Pipeline`;
       }, 3000);
     } catch (e) {
       showToast('Upload error: ' + e.message, 'error');
       btn.disabled = false;
-      btn.innerHTML = `&#8679; Retry Upload`;
+      if (runBtn) runBtn.disabled = false;
+      activeBtn.innerHTML = `&#8679; Retry Upload`;
     }
   }
 

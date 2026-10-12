@@ -298,14 +298,17 @@ async def trigger_job(req: TriggerRequest):
 
 @app.post("/api/upload")
 async def upload_images(
+    background_tasks: BackgroundTasks,
     scene: str = Form(...),
     dataset: str = Form("datasets_custom"),
+    auto_start: bool = Form(False),
     files: List[UploadFile] = File(...)
 ):
     """
     Direct multi-image upload endpoint.
     Uploads 12-15 (or more) scene images directly to Google Cloud Storage
     at gs://<GCS_BUCKET>/datasets/<dataset>/<scene>/images/<filename>
+    Optionally auto-starts the full 4-step pipeline immediately upon completion.
     """
     clean_scene = scene.strip().replace(" ", "_")
     if not clean_scene:
@@ -340,6 +343,31 @@ async def upload_images(
 
     logger.info(f"Uploaded {len(uploaded_files)} images for scene {clean_scene} to gs://{GCS_BUCKET}/{prefix}")
 
+    pipeline_started = False
+    if auto_start and len(uploaded_files) > 0:
+        PIPELINE_STATES[clean_scene] = {
+            "scene": clean_scene,
+            "dataset": dataset,
+            "status": "queued",
+            "steps": [0, 1, 2, 3],
+            "current_step": 0,
+            "step_name": "Step 0: SfM (COLMAP Initializing)",
+            "detail": f"{len(uploaded_files)} images uploaded. Launching Step 0 automatically...",
+            "active_execution": None,
+            "start_time": datetime.utcnow().isoformat(),
+            "elapsed_seconds": 0,
+            "error": None
+        }
+        background_tasks.add_task(
+            run_pipeline_orchestrator,
+            scene=clean_scene,
+            dataset=dataset,
+            steps=[0, 1, 2, 3],
+            episodes_per_run=2,
+            total_episodes=6
+        )
+        pipeline_started = True
+
     return {
         "status": "success",
         "scene": clean_scene,
@@ -347,7 +375,8 @@ async def upload_images(
         "uploaded_count": len(uploaded_files),
         "uploaded_files": uploaded_files,
         "skipped_files": skipped_files,
-        "gcs_uri": f"gs://{GCS_BUCKET}/{prefix}/"
+        "gcs_uri": f"gs://{GCS_BUCKET}/{prefix}/",
+        "pipeline_started": pipeline_started
     }
 
 
