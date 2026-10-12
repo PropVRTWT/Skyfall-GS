@@ -343,6 +343,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     opacity_cooldown_iter = 500
                     print(f"Turn off opacity regularization for {opacity_cooldown_iter} iterations")
 
+                if iteration % 1000 == 0:
+                    torch.cuda.empty_cache()
+
 
 
             if iteration % 100 == 0 and iteration > opt.densify_until_iter:

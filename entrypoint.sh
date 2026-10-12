@@ -60,6 +60,9 @@ fi
 export HF_ENABLE_PARALLEL_LOADING=yes
 export HF_HUB_ENABLE_HF_TRANSFER=0
 
+# Prevent PyTorch CUDA memory fragmentation OOM
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 # Point Hugging Face cache to mounted GCS volume (avoids consuming container RAM)
 export HF_HOME="$DATA_DIR/hf_cache"
 # Direct Hub cache to hf_cache root where blobs and models--* are uploaded
@@ -180,12 +183,8 @@ if [ "$STAGE" = "0" ] || [ "$STAGE" = "colmap" ] || [ "$STAGE" = "sfm" ]; then
   cp "$WORK_DIR"/points3D.* "$TARGET_SCENE_DIR/" 2>/dev/null || true
 
   echo "[INFO] Stage 0 complete! Generated transforms_train.json, points3D.txt, and points3D.ply in GCS: $TARGET_SCENE_DIR"
-
-  if [ "${AUTO_NEXT:-true}" = "true" ] || [ "${AUTO_STAGE_1:-true}" = "true" ] || [ "$STAGE" = "0_1" ] || [ "$STAGE" = "all" ]; then
-    echo "[INFO] Auto-chaining enabled: Automatically proceeding to Stage 1 (Reconstruction) in the same job execution!"
-    STAGE="1"
-    SCENE_DIR="$TARGET_SCENE_DIR"
-  fi
+  echo "[INFO] Cleanly exiting Stage 0 container (exit 0). The orchestrator will trigger a fresh container for Stage 1 after the cooldown break."
+  exit 0
 fi
 
 # ── Stage 1: Reconstruction ───────────────────────────────────────────────────
@@ -197,13 +196,13 @@ if [ "$STAGE" = "1" ]; then
     -m "$OUTPUT_DIR/$SCENE" \
     --eval \
     --kernel_size 0.1 \
-    --resolution 1 \
+    --resolution "${STAGE1_RESOLUTION:-1}" \
     --sh_degree 1 \
     --appearance_enabled \
     --lambda_depth 0 \
     --lambda_opacity 10 \
     --densify_until_iter 21000 \
-    --densify_grad_threshold 0.0001 \
+    --densify_grad_threshold "${DENSIFY_GRAD_THRESHOLD:-0.0002}" \
     --lambda_pseudo_depth 0.5 \
     --start_sample_pseudo 1000 \
     --end_sample_pseudo 21000 \

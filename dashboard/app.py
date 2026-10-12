@@ -165,16 +165,34 @@ async def poll_execution_async(exec_name: str, scene: str, poll_interval: int = 
 
 
 # ── Background Pipeline Orchestrator Worker ──────────────────────────────────
+async def do_cooldown(scene: str, seconds: int, next_step_label: str):
+    """Handles the cooldown period between container runs and updates state live."""
+    state = PIPELINE_STATES.get(scene)
+    if not state:
+        return
+    state["is_cooldown"] = True
+    for remaining in range(seconds, 0, -1):
+        if CANCEL_FLAGS.get(scene, False):
+            break
+        state["cooldown_seconds"] = remaining
+        state["detail"] = f"⏳ Cooldown break: {remaining}s remaining. Synchronizing GCS & releasing GPU before starting {next_step_label}..."
+        await asyncio.sleep(1)
+    state["is_cooldown"] = False
+    state["cooldown_seconds"] = 0
+
+
 async def run_pipeline_orchestrator(scene: str, dataset: str, steps: List[int], episodes_per_run: int = 2, total_episodes: int = 6):
-    """Executes the full 4-step pipeline asynchronously with Option A auto-resume for Step 2."""
+    """Executes the 4-step pipeline with fresh containers and 1-minute breaks."""
     state = PIPELINE_STATES[scene]
     state["status"] = "running"
     state["start_time"] = datetime.utcnow().isoformat()
     state["error"] = None
+    state["is_cooldown"] = False
+    state["cooldown_seconds"] = 0
     CANCEL_FLAGS[scene] = False
 
     try:
-        for step in steps:
+        for i, step in enumerate(steps):
             if CANCEL_FLAGS.get(scene, False):
                 state["status"] = "cancelled"
                 state["detail"] = "Pipeline cancelled by user."
@@ -185,23 +203,28 @@ async def run_pipeline_orchestrator(scene: str, dataset: str, steps: List[int], 
                 state["step_name"] = "Step 0: SfM (COLMAP Pose Estimation & Triangulation)"
                 state["detail"] = "Extracting camera poses and initial 3D tie points from images..."
                 exec_name = await run_cloud_job_async(scene, stage="0", dataset=dataset)
-                state["active_execution"] = exec_name.split("/")[-1]
+                short_name = exec_name.split("/")[-1]
+                state["active_execution"] = short_name
+                state["console_url"] = f"https://console.cloud.google.com/run/jobs/executions/details/{REGION}/{short_name}?project={PROJECT_ID}"
                 ok = await poll_execution_async(exec_name, scene)
                 if not ok:
-                    raise RuntimeError(f"Step 0 (SfM) execution {exec_name.split('/')[-1]} failed.")
+                    raise RuntimeError(f"Step 0 (SfM) execution {short_name} failed.")
+                state["detail"] = "Step 0 complete! Poses and tie points verified in GCS."
 
             elif step == 1:
                 state["current_step"] = 1
                 state["step_name"] = "Step 1: Base Gaussian Splatting (30,000 iters)"
-                state["detail"] = "Optimizing initial 3D Gaussians from sparse COLMAP tie points..."
+                state["detail"] = "Optimizing initial 3D Gaussians in fresh container on clean GPU..."
                 exec_name = await run_cloud_job_async(scene, stage="1", dataset=dataset)
-                state["active_execution"] = exec_name.split("/")[-1]
+                short_name = exec_name.split("/")[-1]
+                state["active_execution"] = short_name
+                state["console_url"] = f"https://console.cloud.google.com/run/jobs/executions/details/{REGION}/{short_name}?project={PROJECT_ID}"
                 ok = await poll_execution_async(exec_name, scene)
                 if not ok:
-                    raise RuntimeError(f"Step 1 (Base GS) execution {exec_name.split('/')[-1]} failed.")
+                    raise RuntimeError(f"Step 1 (Base GS) execution {short_name} failed.")
+                state["detail"] = "Step 1 complete! Saved chkpnt30000.pth to GCS."
 
             elif step == 2:
-                # Option A: Sequential chunks of Cloud Run executions with auto-resume
                 total_chunks = (total_episodes + episodes_per_run - 1) // episodes_per_run
                 state["current_step"] = 2
 
@@ -229,20 +252,34 @@ async def run_pipeline_orchestrator(scene: str, dataset: str, steps: List[int], 
                             "IDU_DENSIFY_UNTIL_ITER": "9000",
                         }
                     )
-                    state["active_execution"] = exec_name.split("/")[-1]
+                    short_name = exec_name.split("/")[-1]
+                    state["active_execution"] = short_name
+                    state["console_url"] = f"https://console.cloud.google.com/run/jobs/executions/details/{REGION}/{short_name}?project={PROJECT_ID}"
                     ok = await poll_execution_async(exec_name, scene)
                     if not ok:
-                        raise RuntimeError(f"Step 2 Chunk {chunk_idx} execution {exec_name.split('/')[-1]} failed.")
+                        raise RuntimeError(f"Step 2 Chunk {chunk_idx} execution {short_name} failed.")
+                    state["detail"] = f"Step 2 Chunk {chunk_idx}/{total_chunks} complete! Checkpoint synced to GCS."
+
+                    if chunk_idx < total_chunks:
+                        await do_cooldown(scene, 60, f"Step 2 Chunk {chunk_idx + 1}")
 
             elif step == 3:
                 state["current_step"] = 3
                 state["step_name"] = "Step 3: Fused PLY Model Export & 360° Orbit Video"
                 state["detail"] = "Generating colored 3D Gaussian Splat PLY and rendering orbit video..."
                 exec_name = await run_cloud_job_async(scene, stage="3", dataset=dataset)
-                state["active_execution"] = exec_name.split("/")[-1]
+                short_name = exec_name.split("/")[-1]
+                state["active_execution"] = short_name
+                state["console_url"] = f"https://console.cloud.google.com/run/jobs/executions/details/{REGION}/{short_name}?project={PROJECT_ID}"
                 ok = await poll_execution_async(exec_name, scene)
                 if not ok:
-                    raise RuntimeError(f"Step 3 (Export & Render) execution {exec_name.split('/')[-1]} failed.")
+                    raise RuntimeError(f"Step 3 (Export & Render) execution {short_name} failed.")
+                state["detail"] = "Step 3 complete! Fused PLY model and orbit video ready."
+
+            # 1-minute cooldown break between sequential pipeline steps
+            if i < len(steps) - 1:
+                next_step_num = steps[i + 1]
+                await do_cooldown(scene, 60, f"Step {next_step_num} (fresh container)")
 
         state["status"] = "completed"
         state["detail"] = "🎉 All pipeline stages successfully completed!"
@@ -257,6 +294,9 @@ async def run_pipeline_orchestrator(scene: str, dataset: str, steps: List[int], 
 
 # ── Routes ───────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
+@app.get("/upload", response_class=HTMLResponse)
+@app.get("/pipeline", response_class=HTMLResponse)
+@app.get("/results", response_class=HTMLResponse)
 async def index():
     html_path = os.path.join(os.path.dirname(__file__), "index.html")
     with open(html_path) as f:

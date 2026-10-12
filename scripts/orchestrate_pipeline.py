@@ -199,6 +199,9 @@ class PipelineOrchestrator:
                 return False
 
             logger.info(f"Chunk {chunk_idx}/{total_runs} completed successfully. Checkpoint synced to GCS.")
+            if chunk_idx < total_runs:
+                logger.info("⏳ Pausing 60 seconds cooldown before launching next Step 2 chunk in fresh container...")
+                time.sleep(60)
 
         logger.info("=== Step 2 Completed Successfully! All 6 episodes reached iter 90,000 ===")
         return True
@@ -215,9 +218,9 @@ class PipelineOrchestrator:
         return True
 
     def run_pipeline(self, steps: List[int]) -> bool:
-        """Execute selected steps in order."""
+        """Execute selected steps in order with 60s cooldown between steps."""
         logger.info(f"Starting Skyfall-GS Pipeline with Steps: {steps}")
-        for step in steps:
+        for i, step in enumerate(steps):
             if step == 0:
                 if not self.run_step_0(): return False
             elif step == 1:
@@ -229,6 +232,11 @@ class PipelineOrchestrator:
             else:
                 logger.error(f"Unknown step: {step}")
                 return False
+
+            if i < len(steps) - 1:
+                logger.info("⏳ Cooldown break: Pausing 60 seconds before next step (allows GCS sync & fresh GPU allocation)...")
+                time.sleep(60)
+
         logger.info("🎉 All requested pipeline stages finished successfully!")
         return True
 

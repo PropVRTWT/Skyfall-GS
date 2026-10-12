@@ -456,6 +456,7 @@
 
     .badge-idle { background: var(--s3); color: var(--text-muted); }
     .badge-running { background: rgba(245, 158, 11, 0.2); color: var(--yellow); }
+    .badge-cooldown { background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); }
     .badge-done { background: rgba(16, 185, 129, 0.2); color: var(--green); }
     .badge-failed { background: rgba(239, 68, 68, 0.2); color: var(--red); }
 
@@ -714,7 +715,7 @@
   <div class="dashboard-grid">
 
     <!-- Section 1: Upload Studio (12-15 Images) -->
-    <div class="glass-card">
+    <div class="glass-card" id="upload-section">
       <div class="card-title-bar">
         <div class="card-title">
           <span>&#128248; Satellite Image Upload Studio</span>
@@ -761,7 +762,7 @@
     </div>
 
     <!-- Section 2: 4-Step Pipeline Orchestrator -->
-    <div class="glass-card">
+    <div class="glass-card" id="pipeline-section">
       <div class="card-title-bar">
         <div class="card-title">
           <span>&#9881; 4-Step Pipeline Orchestrator (Option A: Auto-Resume)</span>
@@ -834,19 +835,32 @@
 
       <!-- Live Monitor Box -->
       <div class="monitor-box" id="monitor-box" style="display: none;">
-        <div class="monitor-pulse"></div>
+        <div class="monitor-pulse" id="monitor-pulse-dot"></div>
         <div class="monitor-details">
           <div class="monitor-title">
             <span id="monitor-title-text">Pipeline Active</span>
+            <a id="monitor-console-link" href="#" target="_blank" class="btn" style="display: none; padding: 4px 10px; font-size: 0.72rem; margin-left: 10px;">
+              &#8599; View in GCP Console
+            </a>
             <span class="mono" id="monitor-time" style="font-size: 0.75rem; color: var(--text-dim); margin-left: auto;">0s elapsed</span>
           </div>
           <div class="monitor-subtitle" id="monitor-detail-text">Waiting for execution response...</div>
+          <!-- Cooldown Progress Bar -->
+          <div id="cooldown-bar-wrap" style="display: none; width: 100%; margin-top: 10px;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: #60a5fa; margin-bottom: 4px; font-weight: 600;">
+              <span>⏳ Fresh Container Cooldown Break</span>
+              <span id="cooldown-countdown-text">60s</span>
+            </div>
+            <div style="background: var(--s3); height: 6px; border-radius: 3px; overflow: hidden; border: 1px solid rgba(59, 130, 246, 0.3);">
+              <div id="cooldown-progress-fill" style="background: linear-gradient(90deg, #3b82f6, #8b5cf6); height: 100%; width: 100%; transition: width 1s linear;"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- Section 3: Interactive Results & Media Viewer -->
-    <div class="glass-card">
+    <div class="glass-card" id="results-section">
       <div class="card-title-bar">
         <div class="card-title">
           <span>&#127916; Reconstruction Results &amp; 3D Orbit Viewer</span>
@@ -1161,6 +1175,7 @@
 
         showToast(`✓ Pipeline auto-launched for ${sceneInput}!`, 'success');
         pipelineActive = true;
+        updateBrowserUrl('/pipeline', sceneInput);
         document.getElementById('launch-pipeline-btn').disabled = true;
         document.getElementById('cancel-pipeline-btn').style.display = 'inline-flex';
         pollPipelineStatus();
@@ -1210,6 +1225,7 @@
 
       showToast(`✓ 4-Step Pipeline initiated for ${scene}`, 'success');
       pipelineActive = true;
+      updateBrowserUrl('/pipeline', scene);
       document.getElementById('launch-pipeline-btn').disabled = true;
       document.getElementById('cancel-pipeline-btn').style.display = 'inline-flex';
       pollPipelineStatus();
@@ -1276,7 +1292,10 @@
         document.getElementById('cancel-pipeline-btn').style.display = 'none';
         if (data.status === 'completed') {
           showToast('🎉 All 4 pipeline stages finished successfully!', 'success');
+          updateBrowserUrl('/results', scene);
           loadMediaOutputs(scene);
+          const resSec = document.getElementById('results-section');
+          if (resSec) resSec.scrollIntoView({ behavior: 'smooth' });
         }
       }
     } catch (e) {
@@ -1291,20 +1310,57 @@
     const monTitle = document.getElementById('monitor-title-text');
     const monSub = document.getElementById('monitor-detail-text');
     const monTime = document.getElementById('monitor-time');
+    const consoleLink = document.getElementById('monitor-console-link');
+    const cooldownWrap = document.getElementById('cooldown-bar-wrap');
+    const cooldownText = document.getElementById('cooldown-countdown-text');
+    const cooldownFill = document.getElementById('cooldown-progress-fill');
+    const pulseDot = document.getElementById('monitor-pulse-dot');
 
-    badge.textContent = (data.status || 'idle').toUpperCase();
+    // Direct GCP Execution link
+    if (consoleLink) {
+      if (data.console_url) {
+        consoleLink.style.display = 'inline-flex';
+        consoleLink.href = data.console_url;
+      } else {
+        consoleLink.style.display = 'none';
+      }
+    }
 
-    if (data.status === 'running' || data.status === 'queued') {
+    if (data.is_cooldown) {
+      badge.textContent = 'COOLDOWN (60s)';
+      badge.className = 'badge badge-cooldown';
+      monitorBox.style.display = 'flex';
+      monTitle.textContent = '⏳ Cooldown Break Between Containers';
+      monSub.textContent = data.detail || 'Pausing 60s for GCS synchronization and fresh GPU allocation...';
+      monTime.textContent = (data.elapsed_seconds || 0) + 's elapsed';
+      if (pulseDot) pulseDot.style.background = '#3b82f6';
+
+      if (cooldownWrap) cooldownWrap.style.display = 'block';
+      const remaining = data.cooldown_seconds || 60;
+      if (cooldownText) cooldownText.textContent = `${remaining}s remaining`;
+      if (cooldownFill) cooldownFill.style.width = `${Math.min(100, Math.max(0, (remaining / 60) * 100))}%`;
+    } else if (data.status === 'running' || data.status === 'queued') {
+      badge.textContent = (data.status || 'running').toUpperCase();
+      badge.className = 'badge badge-running';
       monitorBox.style.display = 'flex';
       monTitle.textContent = data.step_name || 'Running Pipeline...';
       monSub.textContent = data.detail || '';
       monTime.textContent = (data.elapsed_seconds || 0) + 's elapsed';
+      if (pulseDot) pulseDot.style.background = 'var(--acc)';
+      if (cooldownWrap) cooldownWrap.style.display = 'none';
     } else if (data.status === 'completed') {
+      badge.textContent = 'COMPLETED';
+      badge.className = 'badge badge-done';
       monitorBox.style.display = 'flex';
       monTitle.textContent = '🎉 Pipeline Completed Successfully';
       monSub.textContent = data.detail || 'All iterations and video renders generated.';
+      if (pulseDot) pulseDot.style.background = 'var(--green)';
+      if (cooldownWrap) cooldownWrap.style.display = 'none';
     } else {
+      badge.textContent = (data.status || 'idle').toUpperCase();
+      badge.className = 'badge';
       monitorBox.style.display = 'none';
+      if (cooldownWrap) cooldownWrap.style.display = 'none';
     }
 
     // Step cards
@@ -1316,10 +1372,16 @@
       stateBadge.className = 'step-state-badge badge-idle';
       stateBadge.textContent = 'Idle';
 
-      if (data.current_step === s && data.status === 'running') {
-        card.classList.add('active');
-        stateBadge.className = 'step-state-badge badge-running';
-        stateBadge.textContent = 'Running';
+      if (data.current_step === s) {
+        if (data.is_cooldown) {
+          card.classList.add('active');
+          stateBadge.className = 'step-state-badge badge-cooldown';
+          stateBadge.textContent = 'Cooldown';
+        } else if (data.status === 'running') {
+          card.classList.add('active');
+          stateBadge.className = 'step-state-badge badge-running';
+          stateBadge.textContent = 'Running';
+        }
       } else if (data.current_step !== undefined && data.current_step > s) {
         card.classList.add('completed');
         stateBadge.className = 'step-state-badge badge-done';
@@ -1446,8 +1508,50 @@
     setTimeout(() => { t.className = ''; }, 3500);
   }
 
+  // ── URL & Route Handling ───────────────────────────────────────────────────
+  function updateBrowserUrl(path, scene) {
+    try {
+      const targetScene = scene || document.getElementById('scene-name-input').value.trim();
+      const newUrl = targetScene ? `${path}?scene=${encodeURIComponent(targetScene)}` : path;
+      if (window.location.pathname + window.location.search !== newUrl) {
+        window.history.pushState({ path, scene: targetScene }, '', newUrl);
+      }
+    } catch (e) {
+      console.warn('History pushState error:', e);
+    }
+  }
+
+  function handleUrlRouting() {
+    const path = window.location.pathname;
+    const urlParams = new URLSearchParams(window.location.search);
+    const sceneParam = urlParams.get('scene');
+
+    if (sceneParam) {
+      const sceneInput = document.getElementById('scene-name-input');
+      if (sceneInput) sceneInput.value = sceneParam;
+    }
+
+    const currentScene = document.getElementById('scene-name-input').value.trim();
+
+    if (path === '/upload') {
+      const uploadSec = document.getElementById('upload-section');
+      if (uploadSec) uploadSec.scrollIntoView({ behavior: 'smooth' });
+    } else if (path === '/pipeline') {
+      const pipeSec = document.getElementById('pipeline-section');
+      if (pipeSec) pipeSec.scrollIntoView({ behavior: 'smooth' });
+      if (currentScene) pollPipelineStatus();
+    } else if (path === '/results') {
+      const resSec = document.getElementById('results-section');
+      if (resSec) resSec.scrollIntoView({ behavior: 'smooth' });
+      if (currentScene) loadMediaOutputs(currentScene);
+    }
+  }
+
+  window.addEventListener('popstate', handleUrlRouting);
+
   // Init
   loadConfig();
+  handleUrlRouting();
   loadAllStatus();
   setInterval(loadAllStatus, 30000);
 </script>
