@@ -68,7 +68,7 @@ steps:
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'us-central1-docker.pkg.dev/$PROJECT_ID/propvrtwt/skyfall-gs/$BRANCH_NAME:${COMMIT_SHA}']
   id: Pushing the image to registry
-  timeout: '1800s'
+  timeout: '5400s'
 
 # Push latest tag
 - name: 'gcr.io/cloud-builders/docker'
