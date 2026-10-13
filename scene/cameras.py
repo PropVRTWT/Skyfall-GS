@@ -39,16 +39,24 @@ class Camera(nn.Module):
             self.data_device = torch.device("cuda")
 
         self.original_image = image.clamp(0.0, 1.0).to(self.data_device)
-        if depth is not None:
-            self.original_depth = depth.to(self.data_device)
-        else:
-            self.original_depth = torch.zeros((1, 1, 1), device=self.data_device)
-        if mask is not None:
-            self.original_mask = mask.to(self.data_device)
-        else:
-            self.original_mask = torch.ones((1, 1, 1), device=self.data_device)
         self.image_width = self.original_image.shape[2]
         self.image_height = self.original_image.shape[1]
+
+        if depth is not None:
+            self.original_depth = depth.to(self.data_device)
+            if self.original_depth.shape[-2:] != (self.image_height, self.image_width) and self.original_depth.numel() > 1:
+                d = self.original_depth.unsqueeze(0) if self.original_depth.ndim == 3 else self.original_depth
+                self.original_depth = torch.nn.functional.interpolate(d.float(), size=(self.image_height, self.image_width), mode='bilinear', align_corners=False).squeeze(0)
+        else:
+            self.original_depth = torch.zeros((1, 1, 1), device=self.data_device)
+
+        if mask is not None:
+            self.original_mask = mask.to(self.data_device)
+            if self.original_mask.shape[-2:] != (self.image_height, self.image_width) and self.original_mask.numel() > 1:
+                m = self.original_mask.unsqueeze(0) if self.original_mask.ndim == 3 else self.original_mask
+                self.original_mask = torch.nn.functional.interpolate(m.float(), size=(self.image_height, self.image_width), mode='nearest').squeeze(0)
+        else:
+            self.original_mask = torch.ones((1, 1, 1), device=self.data_device)
 
         if gt_alpha_mask is not None:
             self.original_image *= gt_alpha_mask.to(self.data_device)

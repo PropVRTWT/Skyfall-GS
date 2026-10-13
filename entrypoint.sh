@@ -189,14 +189,35 @@ fi
 
 # ── Stage 1: Reconstruction ───────────────────────────────────────────────────
 if [ "$STAGE" = "1" ]; then
-  echo "[INFO] Starting Stage 1 — Reconstruction"
+  # Resolve Stage 1 resolution scale:
+  # - If user explicitly sets STAGE1_RESOLUTION (1, 2, 4), use it.
+  # - Otherwise, auto-detect from first image in scene:
+  #   * Width > 2500 (e.g., 4K / 3840px) -> use 2 (1080p, prevents rasterizer buffer overflow)
+  #   * Width <= 2500 (e.g., 1080p, 2K) -> use 1 (native resolution)
+  if [ -z "${STAGE1_RESOLUTION:-}" ]; then
+    SAMPLE_IMG=$(find "$SCENE_DIR/images" -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.jpeg" \) 2>/dev/null | head -1)
+    if [ -n "$SAMPLE_IMG" ]; then
+      IMG_W=$(python3 -c "from PIL import Image; print(Image.open('$SAMPLE_IMG').width)" 2>/dev/null || echo "0")
+      if [ "$IMG_W" -gt 2500 ]; then
+        echo "[INFO] Detected high-resolution input ($IMG_W px width). Auto-setting STAGE1_RESOLUTION=2 to prevent rasterizer overflow."
+        STAGE1_RESOLUTION=2
+      else
+        echo "[INFO] Detected standard-resolution input ($IMG_W px width). Using STAGE1_RESOLUTION=1."
+        STAGE1_RESOLUTION=1
+      fi
+    else
+      STAGE1_RESOLUTION=1
+    fi
+  else
+    echo "[INFO] Using user-specified STAGE1_RESOLUTION=$STAGE1_RESOLUTION"
+  fi
 
   python train.py \
     -s "$SCENE_DIR" \
     -m "$OUTPUT_DIR/$SCENE" \
     --eval \
     --kernel_size 0.1 \
-    --resolution "${STAGE1_RESOLUTION:-1}" \
+    --resolution "$STAGE1_RESOLUTION" \
     --sh_degree 1 \
     --appearance_enabled \
     --lambda_depth 0 \
@@ -301,7 +322,21 @@ elif [ "$STAGE" = "2" ]; then
     DATASET_TYPE="nyc_v1"
   fi
 
-  export MAX_EPISODES_PER_RUN="${MAX_EPISODES_PER_RUN:-2}"
+  STAGE2_RESOLUTION="${STAGE2_RESOLUTION:-${STAGE1_RESOLUTION:-}}"
+  if [ -z "$STAGE2_RESOLUTION" ]; then
+    SAMPLE_IMG=$(find "$SCENE_DIR/images" -type f \( -iname "*.jpg" -o -iname "*.png" -o -iname "*.jpeg" \) 2>/dev/null | head -1)
+    if [ -n "$SAMPLE_IMG" ]; then
+      IMG_W=$(python3 -c "from PIL import Image; print(Image.open('$SAMPLE_IMG').width)" 2>/dev/null || echo "0")
+      if [ "$IMG_W" -gt 2500 ]; then
+        STAGE2_RESOLUTION=2
+      else
+        STAGE2_RESOLUTION=1
+      fi
+    else
+      STAGE2_RESOLUTION=1
+    fi
+  fi
+  echo "[INFO] Stage 2 using resolution scale divisor: $STAGE2_RESOLUTION"
 
   python train.py \
     -s "$SCENE_DIR" \
@@ -310,7 +345,7 @@ elif [ "$STAGE" = "2" ]; then
     --iterative_datasets_update \
     --eval \
     --kernel_size 0.1 \
-    --resolution 1 \
+    --resolution "$STAGE2_RESOLUTION" \
     --sh_degree 1 \
     --appearance_enabled \
     --lambda_depth 0 \

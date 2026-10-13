@@ -48,9 +48,26 @@ def loadCam(args, id, cam_info, resolution_scale, is_testing=False, optimizing=F
         resized_image_rgb = PILtoTorch(cam_info.image, resolution)
         depth = mask = None
         if cam_info.depth is not None:
-            depth = torch.tensor(cam_info.depth).unsqueeze(0)
+            depth_t = torch.tensor(cam_info.depth, dtype=torch.float32)
+            if depth_t.ndim == 2:
+                depth_t = depth_t.unsqueeze(0).unsqueeze(0)
+                depth = torch.nn.functional.interpolate(depth_t, size=(resolution[1], resolution[0]), mode='bilinear', align_corners=False).squeeze(0)
+            elif depth_t.ndim == 3:
+                depth_t = depth_t.permute(2, 0, 1).unsqueeze(0)
+                depth = torch.nn.functional.interpolate(depth_t, size=(resolution[1], resolution[0]), mode='bilinear', align_corners=False).squeeze(0)
+            else:
+                depth = depth_t.unsqueeze(0)
+
         if cam_info.mask is not None:
-            mask = torch.tensor(cam_info.mask).unsqueeze(0)
+            mask_t = torch.tensor(cam_info.mask, dtype=torch.float32)
+            if mask_t.ndim == 2:
+                mask_t = mask_t.unsqueeze(0).unsqueeze(0)
+                mask = torch.nn.functional.interpolate(mask_t, size=(resolution[1], resolution[0]), mode='nearest').squeeze(0)
+            elif mask_t.ndim == 3:
+                mask_t = mask_t.permute(2, 0, 1).unsqueeze(0)
+                mask = torch.nn.functional.interpolate(mask_t, size=(resolution[1], resolution[0]), mode='nearest').squeeze(0)
+            else:
+                mask = mask_t.unsqueeze(0)
 
         gt_image = resized_image_rgb[:3, ...]
         loaded_mask = None
